@@ -1,0 +1,6 @@
+{
+  "name": "SyncBoard",
+  "description": "Instant multi-device workspace to sync text, images, and hand-drawn whiteboard content in real-time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
