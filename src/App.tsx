@@ -17,6 +17,7 @@ import {
   getDocFromServer
 } from 'firebase/firestore';
 import QRCode from 'qrcode';
+import { jsPDF } from 'jspdf';
 import { 
   Type, 
   Smartphone, 
@@ -57,7 +58,10 @@ import {
   Plus,
   Minus,
   Sparkles,
-  Hourglass
+  Hourglass,
+  Sun,
+  Moon,
+  Target
 } from 'lucide-react';
 import { RoomData } from './types';
 
@@ -182,6 +186,13 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [mode, setMode] = useState<string>('landing'); 
   const [authError, setAuthError] = useState<boolean>(false);
+  const [localTheme, setLocalTheme] = useState<'light' | 'dark'>(() => (safeStorage.getItem('theme') as 'light' | 'dark') || 'light');
+
+  const toggleTheme = () => {
+    const nextTheme = localTheme === 'light' ? 'dark' : 'light';
+    setLocalTheme(nextTheme);
+    safeStorage.setItem('theme', nextTheme);
+  };
 
   useEffect(() => {
     let localUserSet = false;
@@ -268,10 +279,10 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 selection:bg-blue-100 selection:text-blue-900 antialiased">
-      {mode === 'landing' && <LandingView onSelectMode={handleSetMode} />}
-      {mode === 'host' && <HostView user={user} onBack={() => handleSetMode('landing')} />}
-      {mode === 'client' && <ClientView user={user} onBack={() => handleSetMode('landing')} />}
+    <div className={`min-h-screen font-sans selection:bg-blue-100 selection:text-blue-900 antialiased ${localTheme === 'dark' ? 'dark text-slate-100 bg-slate-950' : 'text-slate-800 bg-slate-50'}`}>
+      {mode === 'landing' && <LandingView onSelectMode={handleSetMode} theme={localTheme} onToggleTheme={toggleTheme} />}
+      {mode === 'host' && <HostView user={user} onBack={() => handleSetMode('landing')} globalTheme={localTheme} setGlobalTheme={setLocalTheme} />}
+      {mode === 'client' && <ClientView user={user} onBack={() => handleSetMode('landing')} globalTheme={localTheme} setGlobalTheme={setLocalTheme} />}
     </div>
   );
 }
@@ -279,26 +290,53 @@ function App() {
 // --- Landing View ---
 interface LandingViewProps {
   onSelectMode: (mode: string) => void;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
 }
 
-const LandingView: React.FC<LandingViewProps> = ({ onSelectMode }) => (
-  <div className="flex flex-col items-center justify-center min-h-screen p-6 space-y-12 bg-slate-50 relative overflow-hidden">
+const LandingView: React.FC<LandingViewProps> = ({ onSelectMode, theme, onToggleTheme }) => (
+  <div className={`flex flex-col items-center justify-center min-h-screen p-6 space-y-12 relative overflow-hidden transition-colors duration-300 ${
+    theme === 'dark' ? 'bg-[#0f172a] text-slate-100' : 'bg-slate-50 text-slate-800'
+  }`}>
     {/* Background Decorative Blobs */}
-    <div className="absolute top-0 left-0 w-80 h-80 bg-blue-100/40 rounded-full blur-3xl -z-10 -translate-x-10 -translate-y-10"></div>
-    <div className="absolute bottom-0 right-0 w-80 h-80 bg-emerald-100/30 rounded-full blur-3xl -z-10 translate-x-10 translate-y-10"></div>
+    <div className={`absolute top-0 left-0 w-80 h-80 rounded-full blur-3xl -z-10 -translate-x-10 -translate-y-10 ${
+      theme === 'dark' ? 'bg-blue-900/20' : 'bg-blue-100/40'
+    }`} />
+    <div className={`absolute bottom-0 right-0 w-80 h-80 rounded-full blur-3xl -z-10 translate-x-10 translate-y-10 ${
+      theme === 'dark' ? 'bg-emerald-900/15' : 'bg-emerald-100/30'
+    }`} />
 
-    <div className="text-center space-y-4 max-w-xl">
+    {/* Floating Theme Switcher */}
+    <div className="absolute top-6 right-6 z-20">
+      <button 
+        onClick={onToggleTheme}
+        className={`p-3 rounded-xl border flex items-center justify-center transition-all shadow-sm cursor-pointer ${
+          theme === 'dark' 
+            ? 'bg-slate-900 border-slate-800 text-amber-400 hover:bg-slate-800' 
+            : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+        }`}
+        title={theme === 'dark' ? '切换亮色 / Light Mode' : '切换暗色 / Dark Mode'}
+      >
+        {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+      </button>
+    </div>
+
+    <div className="text-center space-y-4 max-w-xl animate-fade-in">
       <div className="inline-flex p-4 bg-blue-600 text-white rounded-2xl shadow-xl shadow-blue-100/80 mb-2 transition-transform hover:rotate-12 duration-300">
         <RefreshCw className="w-10 h-10" />
       </div>
-      <h1 className="text-5xl font-black text-slate-900 tracking-tight leading-none">
+      <h1 className={`text-5xl font-black tracking-tight leading-none ${
+        theme === 'dark' ? 'text-white' : 'text-slate-900'
+      }`}>
         Sync<span className="text-blue-600 font-extrabold">Board</span>
       </h1>
-      <p className="text-slate-400 text-lg font-medium tracking-wide">
-        Instant Multi-Device Workspace
+      <p className="text-slate-400 text-base font-bold tracking-wide">
+        即时多设备协作空间 / Instant Multi-Device Workspace
       </p>
-      <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/80 border border-slate-200 shadow-sm rounded-full text-[10px] font-mono tracking-widest text-slate-500">
-        <span>SESSION ID: STABLE-V5</span>
+      <div className={`inline-flex items-center gap-1.5 px-3 py-1 border shadow-sm rounded-full text-[10px] font-mono tracking-widest ${
+        theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white/80 border-slate-200 text-slate-500'
+      }`}>
+        <span>会话状态 / STATUS: STABLE-V5</span>
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
       </div>
     </div>
@@ -306,35 +344,43 @@ const LandingView: React.FC<LandingViewProps> = ({ onSelectMode }) => (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-3xl">
       <button
         onClick={() => onSelectMode('host')}
-        className="group flex flex-col items-center p-10 bg-white border border-slate-200/60 rounded-[2.5rem] shadow-xl hover:shadow-2xl hover:border-blue-500 hover:-translate-y-1 transition-all duration-300 active:scale-95 text-left cursor-pointer"
+        className={`group flex flex-col items-center p-10 border rounded-[2.5rem] shadow-xl hover:shadow-2xl hover:border-blue-500 hover:-translate-y-1 transition-all duration-300 active:scale-95 text-left cursor-pointer ${
+          theme === 'dark' ? 'bg-[#131a2c] border-slate-800 text-slate-100' : 'bg-white border-slate-200/60 text-slate-855'
+        }`}
       >
         <div className="p-5 bg-blue-50 text-blue-600 rounded-full mb-6 group-hover:scale-110 group-hover:bg-blue-600 group-hover:text-white transition-all duration-300 shadow-sm shadow-blue-100">
           <Monitor className="w-12 h-12" />
         </div>
-        <h2 className="text-2xl font-black text-slate-950 tracking-tight">大屏接收端</h2>
-        <h3 className="text-sm font-bold text-blue-600 mt-1 uppercase tracking-wide">Penerima Skrin</h3>
+        <h2 className={`text-2xl font-black tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-955'}`}>大屏接收端</h2>
+        <h3 className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wide">Penerima Skrin / Host Display</h3>
         <p className="text-slate-400 mt-3 text-xs text-center leading-relaxed">
-          作为投影大屏幕，实时同步并接收来自智能手机控制器的文本、白板批注、或现场抓拍照片。
+          建立投影展示大屏幕，实时接收、渲染控制端的画板批注、文本及照片，支持课程历史页归档下载。
         </p>
-        <div className="mt-4 px-3 py-1 bg-slate-50 group-hover:bg-blue-50 rounded-lg text-[10px] font-bold text-slate-400 group-hover:text-blue-600 transition-colors">
-          HOST DISPLAY MODE
+        <div className={`mt-4 px-3 py-1 rounded-lg text-[10px] font-bold transition-colors ${
+          theme === 'dark' ? 'bg-slate-800 text-slate-400 group-hover:text-blue-400' : 'bg-slate-50 text-slate-400 group-hover:text-blue-605'
+        }`}>
+          大屏投射模式 / HOST DISPLAY MODE
         </div>
       </button>
 
       <button
         onClick={() => onSelectMode('client')}
-        className="group flex flex-col items-center p-10 bg-white border border-slate-200/60 rounded-[2.5rem] shadow-xl hover:shadow-2xl hover:border-emerald-500 hover:-translate-y-1 transition-all duration-300 active:scale-95 text-left cursor-pointer"
+        className={`group flex flex-col items-center p-10 border rounded-[2.5rem] shadow-xl hover:shadow-2xl hover:border-emerald-500 hover:-translate-y-1 transition-all duration-300 active:scale-95 text-left cursor-pointer ${
+          theme === 'dark' ? 'bg-[#131a2c] border-slate-800 text-slate-100' : 'bg-white border-slate-200/60 text-slate-855'
+        }`}
       >
         <div className="p-5 bg-emerald-50 text-emerald-600 rounded-full mb-6 group-hover:scale-110 group-hover:bg-emerald-500 group-hover:text-white transition-all duration-300 shadow-sm shadow-emerald-100">
           <Smartphone className="w-12 h-12" />
         </div>
-        <h2 className="text-2xl font-black text-slate-950 tracking-tight">手机控制器</h2>
-        <h3 className="text-sm font-bold text-emerald-600 mt-1 uppercase tracking-wide">Pengawal Telefon</h3>
+        <h2 className={`text-2xl font-black tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-955'}`}>手机控制器</h2>
+        <h3 className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wide">Pengawal Telefon / Controller Client</h3>
         <p className="text-slate-400 mt-3 text-xs text-center leading-relaxed">
-          输入文本并实时对齐、切换白板进行随手写画批注、或拍摄照片一键推送至大屏接收端。
+          手持移动管理器，支持实时文本秒级传输、智能双向白板手画、拍照快捷上传以及多功能随机抽签计时。
         </p>
-        <div className="mt-4 px-3 py-1 bg-slate-50 group-hover:bg-emerald-50 rounded-lg text-[10px] font-bold text-slate-400 group-hover:text-emerald-600 transition-colors">
-          CLIENT CONTROL MODE
+        <div className={`mt-4 px-3 py-1 rounded-lg text-[10px] font-bold transition-colors ${
+          theme === 'dark' ? 'bg-slate-800 text-slate-400 group-hover:text-emerald-400' : 'bg-slate-50 text-slate-400 group-hover:text-emerald-605'
+        }`}>
+          手机控制模式 / CLIENT CONTROL MODE
         </div>
       </button>
     </div>
@@ -345,14 +391,17 @@ const LandingView: React.FC<LandingViewProps> = ({ onSelectMode }) => (
 interface HostViewProps {
   user: User;
   onBack: () => void;
+  globalTheme: 'light' | 'dark';
+  setGlobalTheme: (t: 'light' | 'dark') => void;
 }
 
-const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
+const HostView: React.FC<HostViewProps> = ({ user, onBack, globalTheme, setGlobalTheme }) => {
   const [roomCode, setRoomCode] = useState<string>('');
   const [data, setData] = useState<RoomData | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
   const [zoom, setZoom] = useState<number>(1);
+  const [rotation, setRotation] = useState<number>(0);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const lastSpeakTrigger = useRef<number | undefined>(undefined);
 
@@ -362,6 +411,264 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
   const [localRolledName, setLocalRolledName] = useState<string>('');
   const [isLocalRolling, setIsLocalRolling] = useState<boolean>(false);
   const lastRollTrigger = useRef<number | undefined>(undefined);
+
+  // New features states & refs
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [laserTrail, setLaserTrail] = useState<{ x: number; y: number; id: number; age: number }[]>([]);
+  const prevDataRef = useRef<{
+    content: string;
+    imageData: string | null;
+    type: string;
+    pickedResult: string;
+    pickerRollTrigger: number;
+    timerRunning: boolean;
+    timerTimeLeft: number;
+    historyLength: number;
+  }>({
+    content: '',
+    imageData: null,
+    type: 'text',
+    pickedResult: '',
+    pickerRollTrigger: 0,
+    timerRunning: false,
+    timerTimeLeft: 0,
+    historyLength: 0
+  });
+
+  // Dynamic Web Audio API Sound Synthesizer
+  const playSynthesisSound = (type: 'pop' | 'bell' | 'sparkle' | 'success') => {
+    if (!soundEnabled) return;
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      
+      if (type === 'pop') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(220, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.12);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.12);
+      } else if (type === 'bell') {
+        const osc = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(987.77, ctx.currentTime); // B5
+        osc.frequency.exponentialRampToValueAtTime(493.88, ctx.currentTime + 0.6);
+        
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(1975.53, ctx.currentTime);
+        osc2.frequency.exponentialRampToValueAtTime(987.77, ctx.currentTime + 0.6);
+        
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + 0.6);
+        
+        osc.connect(gain);
+        osc2.connect(gain);
+        gain.connect(ctx.destination);
+        
+        osc.start();
+        osc2.start();
+        osc.stop(ctx.currentTime + 0.6);
+        osc2.stop(ctx.currentTime + 0.6);
+      } else if (type === 'sparkle') {
+        // High rapid cascade
+        const now = ctx.currentTime;
+        [523.25, 659.25, 783.99, 1046.50, 1318.51].forEach((freq, index) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.frequency.setValueAtTime(freq, now + index * 0.05);
+          gain.gain.setValueAtTime(0.08, now + index * 0.05);
+          gain.gain.exponentialRampToValueAtTime(0.005, now + index * 0.05 + 0.15);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + index * 0.05);
+          osc.stop(now + index * 0.05 + 0.15);
+        });
+      } else if (type === 'success') {
+        const now = ctx.currentTime;
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        osc1.frequency.setValueAtTime(523.25, now); // C5
+        osc1.frequency.setValueAtTime(659.25, now + 0.12); // E5
+        
+        osc2.frequency.setValueAtTime(783.99, now); // G5
+        osc2.frequency.setValueAtTime(1046.50, now + 0.12); // C6
+        
+        gain.gain.setValueAtTime(0.14, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
+        
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(ctx.destination);
+        
+        osc1.start(now);
+        osc2.start(now);
+        osc1.stop(now + 0.45);
+        osc2.stop(now + 0.45);
+      }
+    } catch (e) {
+      console.warn("Audio synthesis error:", e);
+    }
+  };
+
+  // Laser Pointer Gesture Decay Loop
+  useEffect(() => {
+    if (data?.laserActive && data?.laserX !== undefined && data?.laserY !== undefined) {
+      setLaserTrail(prev => {
+        const newTrail = [...prev, { x: data.laserX!, y: data.laserY!, id: Math.random(), age: 1 }];
+        if (newTrail.length > 35) {
+          newTrail.shift();
+        }
+        return newTrail;
+      });
+    } else {
+      setLaserTrail([]);
+    }
+  }, [data?.laserX, data?.laserY, data?.laserActive]);
+
+  useEffect(() => {
+    if (laserTrail.length === 0) return;
+    const interval = setInterval(() => {
+      setLaserTrail(prev => {
+        const decayed = prev.map(p => ({ ...p, age: p.age - 0.12 })).filter(p => p.age > 0);
+        return decayed;
+      });
+    }, 45);
+    return () => clearInterval(interval);
+  }, [laserTrail.length]);
+
+  // Audio Feedback Watcher from snapshot stream changes
+  useEffect(() => {
+    if (!data) return;
+    const prev = prevDataRef.current;
+
+    // 1. check if content or image pushed
+    if (data.type === 'text' && data.content && data.content !== prev.content) {
+      playSynthesisSound('pop');
+    } else if (data.type === 'image' && data.imageData && data.imageData !== prev.imageData) {
+      playSynthesisSound('bell');
+    }
+
+    // 2. check if timer running status changed or started
+    if (data.type === 'timer') {
+      if (data.timerRunning && data.timerRunning !== prev.timerRunning) {
+        playSynthesisSound('pop');
+      }
+    }
+
+    // 3. check if picker rolled / finish roll / roll trigger
+    if (data.type === 'namePicker') {
+      if (data.pickerRollTrigger && data.pickerRollTrigger !== prev.pickerRollTrigger) {
+        playSynthesisSound('pop');
+      }
+      if (data.pickedResult && data.pickedResult !== prev.pickedResult) {
+        playSynthesisSound('sparkle');
+      }
+    }
+
+    // 4. check if slides/history increased
+    if (data.historyList && data.historyList.length > (prev.historyLength || 0)) {
+      playSynthesisSound('success');
+    }
+
+    // Update the comparator ref
+    prevDataRef.current = {
+      content: data.content || '',
+      imageData: data.imageData || null,
+      type: data.type || 'text',
+      pickedResult: data.pickedResult || '',
+      pickerRollTrigger: data.pickerRollTrigger || 0,
+      timerRunning: data.timerRunning || false,
+      timerTimeLeft: data.timerTimeLeft ?? 0,
+      historyLength: data.historyList?.length || 0
+    };
+  }, [data]);
+
+  // Batch Export Slides/Board History as high-fidelity PDF report
+  const handleExportPDF = async () => {
+    if (!data?.historyList || data.historyList.length === 0) return;
+    
+    try {
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'px',
+        format: [1280, 720]
+      });
+      
+      const list = data.historyList;
+      for (let i = 0; i < list.length; i++) {
+        const item = list[i];
+        if (i > 0) {
+          pdf.addPage([1280, 720], 'landscape');
+        }
+        
+        // Soft blue-grey aesthetic slide background
+        pdf.setFillColor(248, 250, 252); 
+        pdf.rect(0, 0, 1280, 720, 'F');
+        
+        // Slide thin outline border decoration
+        pdf.setDrawColor(226, 232, 240);
+        pdf.setLineWidth(4);
+        pdf.rect(20, 20, 1240, 680, 'D');
+
+        // Header logo & page tracking
+        pdf.setTextColor(37, 99, 235); // Blue
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(26);
+        pdf.text("SyncBoard", 60, 65);
+
+        pdf.setTextColor(71, 85, 105); // slate grey
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(16);
+        pdf.text(`Interactive Class Page | slide ${i + 1} of ${list.length}`, 200, 65);
+
+        pdf.setTextColor(148, 163, 184); // timestamp
+        pdf.setFontSize(11);
+        const savedDate = new Date(item.savedAt).toLocaleString();
+        pdf.text(`Saved timestamp: ${savedDate}`, 60, 92);
+        
+        // Divide header from content
+        pdf.setDrawColor(241, 245, 249);
+        pdf.setLineWidth(1.5);
+        pdf.line(60, 105, 1220, 105);
+
+        // Slide Content rendering
+        if (item.type === 'image' && item.imageData) {
+          try {
+            // Draw board image slide
+            pdf.addImage(item.imageData, 'JPEG', 180, 130, 920, 517);
+          } catch (imgErr) {
+            console.error("Error drawing image to PDF slide", imgErr);
+            pdf.setTextColor(239, 68, 68);
+            pdf.setFontSize(18);
+            pdf.text("Image format conversion anomaly. Unable to draw.", 200, 320);
+          }
+        } else if (item.content) {
+          // Wrap text nicely to fit slide area
+          pdf.setTextColor(15, 23, 42);
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(24);
+          const splitLines = pdf.splitTextToSize(item.content, 1050);
+          pdf.text(splitLines, 80, 160);
+        }
+      }
+      
+      pdf.save(`SyncBoard_ClassNotes_Room_${roomCode}.pdf`);
+    } catch (e) {
+      console.error("Critical error while rendering jsPDF archive: ", e);
+    }
+  };
 
   useEffect(() => {
     if (data?.type === 'timer') {
@@ -476,6 +783,10 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
         const fetched = snapshot.data() as RoomData;
         setData(fetched);
         
+        if (fetched.theme && fetched.theme !== globalTheme) {
+          setGlobalTheme(fetched.theme);
+        }
+        
         if (fetched.speakTrigger) {
           if (lastSpeakTrigger.current !== undefined && fetched.speakTrigger !== lastSpeakTrigger.current) {
             if (fetched.type === 'text' && fetched.content) {
@@ -565,6 +876,130 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
     }
   };
 
+  const handleCaptureSnapshot = () => {
+    if (!data) return;
+    
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1920;
+      canvas.height = 1080;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      const theme = globalTheme;
+      
+      // Fill background based on current theme
+      ctx.fillStyle = theme === 'dark' ? '#0f172a' : '#f8fafc';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw brand header
+      ctx.fillStyle = theme === 'dark' ? '#38bdf8' : '#2563eb';
+      ctx.font = 'bold 36px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('SyncBoard Screen Snapshot', 60, 80);
+      
+      ctx.fillStyle = theme === 'dark' ? '#64748b' : '#94a3b8';
+      ctx.font = '18px monospace';
+      ctx.fillText(`ROOM: #${roomCode} | TIMESTAMP: ${new Date().toLocaleString()}`, 60, 120);
+      
+      // Draw dividing lines
+      ctx.strokeStyle = theme === 'dark' ? '#1e293b' : '#e2e8f0';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(60, 150);
+      ctx.lineTo(1860, 150);
+      ctx.stroke();
+      
+      const triggerDownload = () => {
+        const dataUrl = canvas.toDataURL('image/png');
+        try {
+          localStorage.setItem(`syncboard_snapshot_${roomCode}`, dataUrl);
+        } catch (storageError) {
+          console.warn("Storage quota limit reached for snapshot saving.", storageError);
+        }
+        
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = `syncboard_snapshot_room_${roomCode}_${Date.now()}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      };
+
+      if (data.type === 'image' && data.imageData) {
+        const img = new Image();
+        img.src = data.imageData;
+        img.onload = () => {
+          const maxW = 1600;
+          const maxH = 800;
+          let w = img.width;
+          let h = img.height;
+          const ratio = w / h;
+          if (w > maxW) {
+            w = maxW;
+            h = w / ratio;
+          }
+          if (h > maxH) {
+            h = maxH;
+            w = h * ratio;
+          }
+          const x = 960 - w / 2;
+          const y = 600 - h / 2;
+          ctx.drawImage(img, x, y, w, h);
+          triggerDownload();
+        };
+        img.onerror = () => {
+          triggerDownload();
+        };
+      } else if (data.type === 'timer') {
+        ctx.fillStyle = theme === 'dark' ? '#c084fc' : '#9333ea';
+        ctx.font = 'bold 28px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('COUNTDOWN TIMER / 倒计时器', 960, 350);
+        
+        ctx.fillStyle = theme === 'dark' ? '#f8fafc' : '#1e293b';
+        ctx.font = 'black 140px monospace';
+        const mins = Math.floor(localTimerSeconds / 60);
+        const secs = localTimerSeconds % 60;
+        const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        ctx.fillText(timeStr, 960, 520);
+        
+        ctx.fillStyle = '#64748b';
+        ctx.font = 'bold 20px sans-serif';
+        ctx.fillText('ACTIVE DIGITAL CLOCK MODE', 960, 600);
+        triggerDownload();
+      } else if (data.type === 'namePicker') {
+        ctx.fillStyle = '#f59e0b';
+        ctx.font = 'bold 28px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('RANDOM SELECTOR WINNER / 随机抽取', 960, 350);
+        
+        ctx.fillStyle = theme === 'dark' ? '#f8fafc' : '#0f172a';
+        ctx.font = 'bold 90px sans-serif';
+        ctx.fillText(data.pickedResult || 'WAITING FOR SIGNAL...', 960, 500);
+        triggerDownload();
+      } else {
+        ctx.fillStyle = data.textColor || (theme === 'dark' ? '#f8fafc' : '#0f172a');
+        const fontName = data.fontFamily === 'serif' ? 'Georgia' : data.fontFamily === 'mono' ? 'Courier New' : 'sans-serif';
+        const fontSizeVal = data.fontSize ? Math.round(data.fontSize * 1.5) : 72;
+        ctx.font = `${data.bold ? 'bold' : 'normal'} ${data.italic ? 'italic' : ''} ${fontSizeVal}px ${fontName}`;
+        
+        const lines = (data.content || '').split('\n');
+        let currentY = 320;
+        ctx.textAlign = data.align === 'center' ? 'center' : data.align === 'right' ? 'right' : 'left';
+        const currentX = data.align === 'center' ? 960 : data.align === 'right' ? 1700 : 200;
+        
+        lines.forEach(line => {
+          ctx.fillText(line, currentX, currentY);
+          currentY += fontSizeVal + 24;
+        });
+        triggerDownload();
+      }
+    } catch (e) {
+      console.error("Failed to capture snapshot of screen state", e);
+    }
+  };
+
   if (isInitializing) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-[#f8fafc]">
@@ -575,13 +1010,21 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 overflow-hidden relative font-sans">
+    <div className={`flex flex-col h-screen overflow-hidden relative font-sans transition-colors duration-300 ${
+      globalTheme === 'dark' ? 'bg-[#0b0f19] text-slate-100' : 'bg-slate-50 text-slate-800'
+    }`}>
       {/* Sleek Design Header */}
-      <header className="h-20 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0 z-10">
+      <header className={`h-20 border-b px-8 flex items-center justify-between shrink-0 z-10 transition-colors duration-300 ${
+        globalTheme === 'dark' ? 'bg-[#101726] border-slate-820' : 'bg-white border-slate-200'
+      }`}>
         <div className="flex items-center gap-4">
           <button 
             onClick={onBack} 
-            className="p-3 bg-slate-50 hover:bg-slate-100 hover:text-red-500 rounded-xl transition-all cursor-pointer border border-slate-200 shadow-sm"
+            className={`p-3 rounded-xl transition-all cursor-pointer border shadow-sm ${
+              globalTheme === 'dark' 
+                ? 'bg-slate-900 border-slate-800 text-slate-400 hover:text-red-400 hover:bg-slate-800' 
+                : 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:text-red-500'
+            }`}
             title="返回主页 / Back"
           >
              <Trash2 className="w-4 h-4" />
@@ -591,10 +1034,10 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
               <RefreshCw className="w-5 h-5 animate-spin-slow" />
             </div>
             <div>
-              <h1 className="text-xl font-black text-slate-900 tracking-tight leading-none">SyncBoard</h1>
+              <h1 className={`text-xl font-black tracking-tight leading-none ${globalTheme === 'dark' ? 'text-white' : 'text-slate-900'}`}>SyncBoard</h1>
               <span className="text-[10px] text-emerald-500 font-bold tracking-wider uppercase flex items-center gap-1.5 mt-1.5">
                 <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-                Live Connection Active
+                实时连接激活 / Live Connection Active
               </span>
             </div>
           </div>
@@ -605,56 +1048,109 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
           {qrCodeUrl && (
             <div className="group relative">
               <div 
-                className="p-1.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl cursor-pointer shadow-sm transition-all flex items-center justify-center"
+                className={`p-1.5 border rounded-xl cursor-pointer shadow-sm transition-all flex items-center justify-center ${
+                  globalTheme === 'dark' ? 'bg-slate-900 border-slate-800 hover:bg-slate-800' : 'bg-white border-slate-200 hover:bg-slate-50'
+                }`}
                 title="扫码加入 / Scan to Join"
               >
                 <img src={qrCodeUrl} className="w-10 h-10 object-contain rounded" alt="QR Code" />
               </div>
-              <div className="absolute top-14 right-0 invisible group-hover:visible opacity-0 group-hover:opacity-100 bg-white p-4 rounded-2xl shadow-2xl border border-slate-200 transition-all duration-200 w-52 text-center z-50">
-                <img src={qrCodeUrl} className="w-44 h-44 mx-auto object-contain rounded-xl" alt="QR Code Expanded" />
-                <p className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider mt-2">扫码一键加入 / Scan to Join</p>
-                <span className="text-[8px] text-slate-400 block mt-1 select-all break-all">{`${window.location.origin}${window.location.pathname}?room=${roomCode}`}</span>
+              <div className={`absolute top-14 right-0 invisible group-hover:visible opacity-0 group-hover:opacity-100 p-4 rounded-2xl shadow-2xl border transition-all duration-200 w-52 text-center z-50 ${
+                globalTheme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              }`}>
+                <img src={qrCodeUrl} className="w-44 h-44 mx-auto object-contain rounded-xl bg-white p-1" alt="QR Code Expanded" />
+                <p className={`text-[10px] font-extrabold uppercase tracking-wider mt-2 ${globalTheme === 'dark' ? 'text-slate-200' : 'text-slate-700'}`}>扫码一键加入 / Scan to Join</p>
+                <span className={`text-[8px] block mt-1 select-all break-all ${globalTheme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>{`${window.location.origin}${window.location.pathname}?room=${roomCode}`}</span>
               </div>
             </div>
           )}
-          <div className="flex flex-col items-end">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Room Access Code</span>
+          <div className="flex flex-col items-end shrink-0">
+            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">房间加入码 / Joining Code</span>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-3xl font-mono font-black text-blue-600 leading-none tracking-tighter tabular-nums">{roomCode}</span>
+              <span className={`text-3xl font-mono font-black leading-none tracking-tighter tabular-nums ${globalTheme === 'dark' ? 'text-amber-400' : 'text-blue-600'}`}>{roomCode}</span>
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
             </div>
           </div>
-          <div className="h-10 w-px bg-slate-200"></div>
-          <div className="flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-full shadow-sm">
+          <button
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className={`p-2.5 rounded-xl border flex items-center justify-center transition-all shadow-sm cursor-pointer ${
+              soundEnabled
+                ? (globalTheme === 'dark' ? 'bg-emerald-950/45 border-emerald-800 text-emerald-400 hover:bg-emerald-900/40' : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100')
+                : (globalTheme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-500 hover:bg-slate-800' : 'bg-slate-100/60 border-slate-200 text-slate-400 hover:bg-slate-100')
+            }`}
+            title={soundEnabled ? '关闭声音回馈 / Mute Audio' : '开启声音回馈 / Unmute Audio'}
+          >
+            <Volume2 size={16} />
+          </button>
+          <div className={`h-10 w-px ${globalTheme === 'dark' ? 'bg-slate-800' : 'bg-slate-200'} hidden sm:block`}></div>
+          <div className={`items-center gap-2 px-4 py-2 rounded-full shadow-sm ${globalTheme === 'dark' ? 'bg-[#151c2e]' : 'bg-slate-100'} hidden sm:flex`}>
             <div className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">H</div>
-            <span className="text-xs font-bold text-slate-600">Host Station</span>
+            <span className={`text-xs font-bold ${globalTheme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>大屏端 / Host Station</span>
           </div>
         </div>
       </header>
 
-      {/* Main Screen Receiver Display */}
-      <main className="flex-1 flex p-6 gap-6 min-h-0">
-        <div className="flex-1 bg-white rounded-[2.5rem] shadow-xl shadow-slate-200/60 border border-slate-200/60 flex flex-col overflow-hidden relative">
+      {/* Main Screen Receiver Display (Fully Responsive Stack layout) */}
+      <main className="flex-1 flex flex-col lg:flex-row p-4 lg:p-6 gap-6 min-h-0 overflow-y-auto lg:overflow-hidden">
+        <div className={`flex-1 rounded-[2.5rem] shadow-xl border flex flex-col overflow-hidden relative transition-colors duration-300 ${
+          globalTheme === 'dark' ? 'bg-[#0f172a] border-slate-800 shadow-none' : 'bg-white border-slate-200/60 shadow-slate-200/60'
+        }`} style={{ minHeight: '450px' }}>
           
           {/* Action indicator labels top-left */}
-          <div className="absolute top-6 left-6 flex gap-2 z-10 bg-white/70 backdrop-blur-sm p-1.5 rounded-2xl border border-slate-100">
-            <div className="px-3 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-500 uppercase tracking-wide">4K RESOLUTION</div>
+          <div className={`absolute top-6 left-6 flex gap-2 z-10 p-1.5 rounded-2xl border backdrop-blur-sm ${
+            globalTheme === 'dark' ? 'bg-slate-900/80 border-slate-804' : 'bg-white/70 border-slate-100'
+          }`}>
+            <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${globalTheme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>4K 高灵敏投射 / 4K UHD</div>
             <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
-              data?.type === 'image' ? 'bg-emerald-50 text-emerald-700' :
-              data?.type === 'timer' ? 'bg-purple-50 text-purple-700' :
-              data?.type === 'namePicker' ? 'bg-amber-50 text-amber-750' :
-              'bg-blue-50 text-blue-700'
+              data?.type === 'image' ? (globalTheme === 'dark' ? 'bg-emerald-950/40 text-emerald-450' : 'bg-emerald-50 text-emerald-700') :
+              data?.type === 'timer' ? (globalTheme === 'dark' ? 'bg-purple-950/40 text-purple-450' : 'bg-purple-50 text-purple-700') :
+              data?.type === 'namePicker' ? (globalTheme === 'dark' ? 'bg-amber-950/40 text-amber-450' : 'bg-amber-50 text-amber-750') :
+              (globalTheme === 'dark' ? 'bg-blue-950/40 text-blue-450' : 'bg-blue-50 text-blue-700')
             }`}>
-              {data?.type === 'image' ? 'WHITEBOARD SKETCH' :
-               data?.type === 'timer' ? 'COUNTDOWN TIMER' :
-               data?.type === 'namePicker' ? 'RANDOM NAME PICKER' :
-               'LIVE TEXT SYNC'}
+              {data?.type === 'image' ? '白板手写幻灯片 / Whiteboard Sketch' :
+               data?.type === 'timer' ? '倒计时看板 / Countdown Timer' :
+               data?.type === 'namePicker' ? '幸运随机抽签 / Random Name Picker' :
+               '文本实时同步 / Live Text Sync'}
             </div>
           </div>
 
+          {/* Laser Pointer Gesture Trails */}
+          {laserTrail.map((pt) => (
+            <div
+              key={pt.id}
+              className="absolute pointer-events-none z-45 rounded-full bg-rose-500 blur-[1px] -translate-x-1/2 -translate-y-1/2 transition-all duration-150 ease-out"
+              style={{
+                left: `${pt.x}%`,
+                top: `${pt.y}%`,
+                width: `${pt.age * 14}px`,
+                height: `${pt.age * 14}px`,
+                opacity: pt.age * 0.75,
+                boxShadow: '0 0 8px rgba(239, 68, 68, 0.5)'
+              }}
+            />
+          ))}
+
+          {/* Laser Pointer Overlay */}
+          {data?.laserActive && data?.laserX !== undefined && data?.laserY !== undefined && (
+            <div 
+              className="absolute pointer-events-none z-50 transition-all duration-75 ease-out"
+              style={{
+                left: `${data.laserX}%`,
+                top: `${data.laserY}%`,
+                transform: 'translate(-50%, -50%)'
+              }}
+            >
+              {/* Radiating pulsing laser rings */}
+              <span className="absolute inline-flex h-12 w-12 -left-6 -top-6 rounded-full bg-rose-500/35 animate-ping" />
+              <span className="absolute inline-flex h-6 w-6 -left-3 -top-3 rounded-full bg-rose-500/60 animate-pulse" />
+              {/* Glowing Laser Center Core */}
+              <div className="w-4.5 h-4.5 bg-rose-600 rounded-full border border-white shadow-[0_0_12px_#ef4444]" />
+            </div>
+          )}
+
           <div 
-            className="w-full h-full transition-transform duration-300 ease-out origin-center p-16 flex items-center justify-center overflow-auto bg-slate-50/10"
-            style={{ transform: `scale(${zoom})` }}
+            className="w-full h-full transition-transform duration-300 ease-out origin-center p-16 flex items-center justify-center overflow-auto relative bg-transparent"
+            style={{ transform: `scale(${zoom}) rotate(${rotation}deg)` }}
           >
             {data?.type === 'image' && data.imageData ? (
               <div className="max-w-full max-h-full flex items-center justify-center p-4">
@@ -803,56 +1299,194 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
           </div>
 
           {/* Symmetrical Floating Control Bar inside bottom container (Sleek Interface) */}
-          <div className="h-20 bg-slate-50/90 backdrop-blur-md border-t border-slate-200/60 px-10 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3 bg-white px-3 py-1.5 rounded-xl border border-slate-100 shadow-sm">
+          <div className={`h-20 border-t px-10 flex items-center justify-between shrink-0 transition-colors duration-300 ${
+            globalTheme === 'dark' ? 'bg-[#101726]/90 border-slate-800' : 'bg-slate-50/90 border-slate-200/60'
+          }`}>
+            <div className={`flex items-center gap-3 px-3 py-1.5 rounded-xl border shadow-sm ${
+              globalTheme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+            }`}>
+              {/* Zoom Buttons */}
               <button 
                 onClick={() => setZoom(prev => Math.min(2.5, prev + 0.15))} 
-                className="p-1.5 hover:bg-blue-50 text-slate-500 hover:text-blue-600 rounded-lg cursor-pointer transition-colors"
-                title="放大"
+                className={`p-1.5 rounded-lg cursor-pointer transition-colors ${
+                  globalTheme === 'dark' ? 'hover:bg-slate-800 text-slate-400 hover:text-blue-400' : 'hover:bg-blue-50 text-slate-500 hover:text-blue-600'
+                }`}
+                title="放大 / Zoom In"
               >
                 <ZoomIn size={18}/>
               </button>
-              <span className="text-xs font-mono font-bold text-slate-500 w-16 text-center">{Math.round(zoom*100)}% SCALE</span>
+              <span className={`text-xs font-mono font-bold w-16 text-center ${globalTheme === 'dark' ? 'text-slate-300' : 'text-slate-500'}`}>{Math.round(zoom*100)}% SCALE</span>
               <button 
                 onClick={() => setZoom(prev => Math.max(0.4, prev - 0.15))} 
-                className="p-1.5 hover:bg-blue-50 text-slate-500 hover:text-blue-600 rounded-lg cursor-pointer transition-colors"
-                title="缩小"
+                className={`p-1.5 rounded-lg cursor-pointer transition-colors ${
+                  globalTheme === 'dark' ? 'hover:bg-slate-800 text-slate-400 hover:text-blue-400' : 'hover:bg-blue-50 text-slate-500 hover:text-blue-600'
+                }`}
+                title="缩小 / Zoom Out"
               >
                 <ZoomOut size={18}/>
               </button>
               <button 
                 onClick={() => setZoom(1)} 
-                className="p-1.5 hover:bg-slate-150 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer transition-colors" 
-                title="还原 100%"
+                className={`p-1.5 rounded-lg cursor-pointer transition-colors ${
+                  globalTheme === 'dark' ? 'hover:bg-slate-800 text-slate-500 hover:text-slate-300' : 'hover:bg-slate-150 text-slate-400 hover:text-slate-600'
+                }`} 
+                title="还原 100% / Reset Scale"
               >
                 <Maximize size={16}/>
               </button>
             </div>
 
+            {/* Rotator and Action Widgets */}
             <div className="flex items-center gap-3">
+              {/* Rotation controller widget */}
+              <button 
+                onClick={() => setRotation(prev => (prev + 90) % 360)} 
+                className={`px-4.5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 duration-100 cursor-pointer flex items-center gap-1.5 border ${
+                  globalTheme === 'dark' 
+                    ? 'bg-slate-900 hover:bg-slate-805 border-slate-800 text-slate-300' 
+                    : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                }`}
+                title="将内容旋转 90 度 / Rotate content by 90-degree"
+              >
+                <RotateCw size={13} className="animate-spin-slow" />
+                <span>旋转: {rotation}°</span>
+              </button>
+
+              {/* Snapshot image save button */}
+              <button 
+                onClick={handleCaptureSnapshot} 
+                className={`px-4.5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 duration-100 cursor-pointer flex items-center gap-1.5 border ${
+                  globalTheme === 'dark' 
+                    ? 'bg-blue-600 hover:bg-blue-500 border-blue-700 text-white shadow-blue-900/10' 
+                    : 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700'
+                }`}
+                title="捕捉当前屏幕状态并自动下载为 PNG 图片"
+              >
+                <Camera size={14} />
+                <span>现场快照 / Snapshot (PNG)</span>
+              </button>
+
               <button 
                 onClick={handleDownloadSession} 
-                className="px-5 py-2.5 bg-slate-950 hover:bg-slate-900 text-white rounded-xl font-bold text-xs shadow-md shadow-slate-900/10 transition-transform active:scale-95 duration-100 cursor-pointer flex items-center gap-1.5 border border-slate-800"
+                className="px-4.5 py-2.5 bg-slate-950 hover:bg-slate-900 text-white border border-slate-850 rounded-xl font-bold text-xs shadow-md transition-transform active:scale-95 duration-100 cursor-pointer flex items-center gap-1.5"
               >
                 <Download size={14} />
-                Download Session
+                下载会话 / Download Session
               </button>
+
               {data?.type === 'text' && data.content && (
                 <button 
                   onClick={handleCopy}
-                  className={`px-5 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all duration-150 active:scale-95 cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-4.5 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all duration-150 active:scale-95 cursor-pointer flex items-center gap-1.5 ${
                     copied 
                       ? 'bg-emerald-600 text-white shadow-emerald-200' 
-                      : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-100'
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100'
                   }`}
                 >
                   {copied ? <Check size={14} /> : <Copy size={14} />}
-                  {copied ? 'Copied !' : 'Copy to Clipboard'}
+                  {copied ? '已复制 / Copied !' : '复制文本 / Copy Text'}
                 </button>
               )}
             </div>
           </div>
         </div>
+
+        {/* Dynamic Multi-page / Slide History Sidebar */}
+        {data?.historyList && data.historyList.length > 0 && (
+          <div className={`w-full lg:w-80 rounded-[2.5rem] border p-5 flex flex-col shrink-0 overflow-hidden transition-all duration-300 ${
+            globalTheme === 'dark' ? 'bg-[#101726]/90 border-slate-800' : 'bg-white border-slate-200 shadow-lg shadow-slate-200/50'
+          }`} style={{ minHeight: '350px' }}>
+            <div className="flex items-center justify-between mb-3">
+              <span className={`text-xs font-extrabold uppercase tracking-wider flex items-center gap-1.5 ${
+                globalTheme === 'dark' ? 'text-slate-300' : 'text-slate-800'
+              }`}>
+                <History className="text-blue-500 animate-pulse" size={14} />
+                课程页历史 / Slides History
+              </span>
+              <span className="text-[9px] bg-blue-50 border border-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-bold">
+                {data.historyList.length} 页数 / PAGES
+              </span>
+            </div>
+            
+            <p className="text-[10px] text-slate-400 font-medium mb-3 leading-relaxed">
+              控制器端点击“保存”时自动归档，点击即可投射归档内容。
+            </p>
+            
+            <button
+              onClick={handleExportPDF}
+              className="mb-4 w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-650 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl shadow-md cursor-pointer transition-all active:scale-98 flex items-center justify-center gap-2 duration-150 shrink-0"
+              title="一键导出整堂板书课件 PDF / Export All"
+            >
+              <Download size={12} />
+              一键导出 PDF 课件 / Export Session PDF
+            </button>
+            
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 no-scrollbar scrollbar-none">
+              {data.historyList.map((item, index) => {
+                const isActive = (item.type === data.type && 
+                                 (item.type === 'text' ? item.content === data.content : item.imageData === data.imageData));
+                return (
+                  <button
+                    key={item.id}
+                    onClick={async () => {
+                      try {
+                        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', `room_${roomCode}`);
+                        await updateDoc(roomRef, {
+                          type: item.type,
+                          content: item.content,
+                          imageData: item.imageData,
+                          textColor: item.type === 'text' ? (data.textColor || null) : null,
+                          fontFamily: item.type === 'text' ? (data.fontFamily || null) : null,
+                          fontSize: item.type === 'text' ? (data.fontSize || null) : null,
+                          lastActive: serverTimestamp()
+                        });
+                      } catch (err) {
+                        console.error("Failed to restore history page:", err);
+                      }
+                    }}
+                    className={`w-full p-2.5 border rounded-xl flex items-center gap-3.5 cursor-pointer text-left transition-all ${
+                      isActive 
+                        ? (globalTheme === 'dark' ? 'bg-blue-950/45 border-blue-500 shadow-inner' : 'bg-blue-50 border-blue-300 shadow-sm')
+                        : (globalTheme === 'dark' ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-slate-50/50 hover:bg-slate-50 border-slate-200/60')
+                    }`}
+                  >
+                    <div className="relative shrink-0 flex items-center h-full">
+                      {item.type === 'image' ? (
+                        <div className="w-10 h-10 bg-slate-150 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center shadow-inner">
+                          <img src={item.imageData!} className="w-full h-full object-cover" alt="Whiteboard preview" referrerPolicy="no-referrer" />
+                        </div>
+                      ) : (
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center border shadow-inner ${
+                          isActive 
+                            ? 'bg-blue-100/60 text-blue-600' 
+                            : 'bg-indigo-50/45 text-slate-400'
+                        }`}>
+                          <Type size={14} />
+                        </div>
+                      )}
+                      <div className="absolute -top-1.5 -left-1.5 w-4.5 h-4.5 bg-slate-950 text-white rounded-full text-[8px] font-mono font-bold flex items-center justify-center border border-slate-800/25">
+                        {data.historyList.length - index}
+                      </div>
+                    </div>
+                    
+                    <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                      <span className={`text-[10px] font-bold truncate block ${
+                        isActive 
+                          ? 'text-blue-600' 
+                          : (globalTheme === 'dark' ? 'text-slate-300' : 'text-slate-700')
+                      }`}>
+                        {item.type === 'text' ? item.content : '白板手写幻灯页'}
+                      </span>
+                      <span className="text-[8px] text-slate-400 font-mono font-bold">
+                        {new Date(item.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Modern Status Footer */}
@@ -878,6 +1512,8 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
 interface ClientViewProps {
   user: User;
   onBack: () => void;
+  globalTheme: 'light' | 'dark';
+  setGlobalTheme: (t: 'light' | 'dark') => void;
 }
 
 interface HistoryItem {
@@ -888,7 +1524,7 @@ interface HistoryItem {
   savedAt: number;
 }
 
-const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
+const ClientView: React.FC<ClientViewProps> = ({ user, onBack, globalTheme, setGlobalTheme }) => {
   const urlParams = new URLSearchParams(window.location.search);
   const initialRoom = urlParams.get('room');
 
@@ -1493,18 +2129,18 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
                   <TimerIcon size={18} />
                 </div>
                 <div>
-                  <h4 className="font-extrabold text-sm text-slate-800">计时大屏中继终端</h4>
-                  <span className="text-[10px] text-slate-400 font-bold block">Countdown Control Terminal</span>
+                  <h4 className="font-extrabold text-sm text-slate-800">计时管理端 / Timer Controller</h4>
+                  <span className="text-[10px] text-slate-400 font-bold block">倒计时管理控制 / Countdown Control Terminal</span>
                 </div>
               </div>
               <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold block ${roomData?.timerRunning ? "bg-emerald-50 text-emerald-600 animate-pulse" : "bg-slate-100 text-slate-500"}`}>
-                {roomData?.timerRunning ? "RUNNING" : "PAUSED"}
+                {roomData?.timerRunning ? "运行中 / RUNNING" : "暂停中 / PAUSED"}
               </span>
             </div>
 
             {/* Big Digital Readout */}
             <div className="text-center py-6 bg-slate-50 rounded-2xl border border-slate-150 shadow-inner shrink-0">
-              <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Estimated Remaining / 预计剩余</div>
+              <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">预计剩余时间 / Estimated Remaining</div>
               <div className="text-5xl font-mono font-black text-slate-700 mt-1 tabular-nums">
                 {(() => {
                   const mins = Math.floor(localClientTimerSeconds / 60);
@@ -1516,7 +2152,7 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
 
             {/* Presets and custom settings */}
             <div className="space-y-3 shrink-0">
-              <span className="text-[10px] text-slate-400 font-extrabold uppercase block tracking-wider">Quick Select Duration / 快速限时</span>
+              <span className="text-[10px] text-slate-400 font-extrabold uppercase block tracking-wider">快速选择时长 / Quick Duration Select</span>
               <div className="grid grid-cols-4 gap-2">
                 {[
                   { label: '1m', value: 60 },
@@ -1631,8 +2267,8 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
                   <UserCheck size={18} />
                 </div>
                 <div>
-                  <h4 className="font-extrabold text-sm text-slate-800">幸运抽取遥控面板</h4>
-                  <span className="text-[10px] text-slate-400 font-bold block">Random Selector Dashboard</span>
+                  <h4 className="font-extrabold text-sm text-slate-800">幸运抽签控制端 / Random Name Picker</h4>
+                  <span className="text-[10px] text-slate-400 font-bold block">随机选取名单管理 / Candidates Selector Dashboard</span>
                 </div>
               </div>
             </div>
@@ -1640,7 +2276,7 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
             {/* Candidate List input */}
             <div className="flex-1 flex flex-col gap-2 min-h-[140px]">
               <div className="flex justify-between items-center shrink-0">
-                <span className="text-[10px] text-slate-400 font-extrabold uppercase block tracking-wider">Candidate Names / 候选名单</span>
+                <span className="text-[10px] text-slate-400 font-extrabold uppercase block tracking-wider">候选人名单 / Candidates List</span>
                 <span className="text-[9px] font-mono text-slate-500 font-black bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-150">
                   {(roomData?.namesList || '').split(/[\n,;，；]+/).filter(Boolean).length} 位成员
                 </span>
@@ -1658,7 +2294,7 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
               <div className="bg-amber-50/55 border border-amber-200/60 p-3.5 rounded-2xl text-center shadow-inner animate-fade-in relative overflow-hidden shrink-0">
                 <div className="text-[10px] font-extrabold text-amber-500 uppercase tracking-widest flex items-center justify-center gap-1.5 mb-1">
                   <Sparkles size={11} />
-                  Picked Winner / 选中者
+                  已抽取选中 / Picked Winner
                 </div>
                 <div className="text-lg font-black text-slate-800 tracking-tight select-all">
                   {roomData?.pickedResult}
@@ -1733,19 +2369,22 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
                 />
               ) : (
                 <div className="flex-1 bg-white rounded-2xl overflow-hidden border border-slate-100">
-                   <DrawingCanvas onSend={dataUrl => {
-                     updateCloud({ type: 'image', imageData: dataUrl, content: '' })
-                       .then(() => {
-                         setStatus('idle');
-                         addToHistory('image', '', dataUrl);
-                       });
-                     setInputMode('text');
-                     try {
-                       if (navigator.vibrate) navigator.vibrate(50);
-                     } catch (e) {
-                       // Safe catch
-                     }
-                   }} />
+                   <DrawingCanvas 
+                     onSend={dataUrl => {
+                       updateCloud({ type: 'image', imageData: dataUrl, content: '' })
+                         .then(() => {
+                           setStatus('idle');
+                           addToHistory('image', '', dataUrl);
+                         });
+                       setInputMode('text');
+                       try {
+                         if (navigator.vibrate) navigator.vibrate(50);
+                       } catch (e) {
+                         // Safe catch
+                       }
+                     }} 
+                     updateCloud={updateCloud}
+                   />
                 </div>
               )}
             </div>
@@ -1794,13 +2433,19 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
 // --- Drawing Canvas Component ---
 interface DrawingCanvasProps {
   onSend: (dataUrl: string) => void;
+  updateCloud: (payload: Partial<RoomData>) => Promise<void>;
 }
 
-const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onSend }) => {
+const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onSend, updateCloud }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [drawing, setDrawing] = useState<boolean>(false);
   const [color, setColor] = useState<string>('#1e293b');
   
+  // Custom tool configurations: draw strokes, stamp shapes, or laser pointer tracking
+  const [tool, setTool] = useState<'draw' | 'stamp' | 'laser'>('draw');
+  const [selectedStamp, setSelectedStamp] = useState<'arrow' | 'check' | 'star' | 'question' | 'heart'>('arrow');
+  const [zoomFactor, setZoomFactor] = useState<number>(1);
+
   const [drawHistory, setDrawHistory] = useState<string[]>([]);
   const [drawRedoHistory, setDrawRedoHistory] = useState<string[]>([]);
   
@@ -1902,9 +2547,19 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onSend }) => {
     setDrawRedoHistory([]);
   };
 
+  const drawStampOnCtx = (ctx: CanvasRenderingContext2D, char: string, px: number, py: number, colorStr: string) => {
+    ctx.save();
+    ctx.fillStyle = colorStr;
+    ctx.font = '28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(char, px, py);
+    ctx.restore();
+  };
+
   const getPos = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
+    if (!canvas) return { x: 0, y: 0, rawX: 0, rawY: 0, rectWidth: 1, rectHeight: 1 };
     const rect = canvas.getBoundingClientRect();
     
     const isTouch = 'touches' in e;
@@ -1919,13 +2574,58 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onSend }) => {
     const clientX = activeTouch ? activeTouch.clientX : (e as React.MouseEvent).clientX;
     const clientY = activeTouch ? activeTouch.clientY : (e as React.MouseEvent).clientY;
     
-    return { 
-      x: clientX - (rect?.left || 0), 
-      y: clientY - (rect?.top || 0) 
-    };
+    const rawX = clientX - (rect?.left || 0);
+    const rawY = clientY - (rect?.top || 0);
+    const rectWidth = rect?.width || 1;
+    const rectHeight = rect?.height || 1;
+
+    // Normalizing coordinates back to logical sizes of the canvas (bulletproof coordinate scaling)
+    const dpr = window.devicePixelRatio || 1;
+    const canvasLogicalWidth = canvas.width / dpr;
+    const canvasLogicalHeight = canvas.height / dpr;
+
+    const x = (rawX / rectWidth) * canvasLogicalWidth;
+    const y = (rawY / rectHeight) * canvasLogicalHeight;
+
+    return { x, y, rawX, rawY, rectWidth, rectHeight };
   };
 
   const start = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (tool === 'laser') {
+      const { rawX, rawY, rectWidth, rectHeight } = getPos(e);
+      const xPct = Math.max(0, Math.min(100, (rawX / rectWidth) * 100));
+      const yPct = Math.max(0, Math.min(100, (rawY / rectHeight) * 100));
+      updateCloud({ 
+        laserActive: true, 
+        laserX: xPct,
+        laserY: yPct
+      });
+      try {
+        if (navigator.vibrate) navigator.vibrate(20);
+      } catch (_) {}
+      return;
+    }
+
+    if (tool === 'stamp') {
+      const { x, y } = getPos(e);
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      const stampChar = selectedStamp === 'arrow' ? '➔' :
+                        selectedStamp === 'check' ? '✔' :
+                        selectedStamp === 'star' ? '★' :
+                        selectedStamp === 'question' ? '❓' : '❤️';
+      
+      drawStampOnCtx(ctx, stampChar, x, y, colorRef.current);
+      saveState();
+      try {
+        if (navigator.vibrate) navigator.vibrate(15);
+      } catch (_) {}
+      return;
+    }
+
     setDrawing(true);
     const { x, y } = getPos(e);
     const canvas = canvasRef.current;
@@ -1938,6 +2638,23 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onSend }) => {
   };
 
   const move = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (tool === 'laser') {
+      const { rawX, rawY, rectWidth, rectHeight } = getPos(e);
+      const xPct = Math.max(0, Math.min(100, (rawX / rectWidth) * 100));
+      const yPct = Math.max(0, Math.min(100, (rawY / rectHeight) * 100));
+      updateCloud({ 
+        laserActive: true, 
+        laserX: xPct,
+        laserY: yPct
+      });
+      try {
+        if (navigator.vibrate && Math.random() < 0.25) {
+          navigator.vibrate(10);
+        }
+      } catch (_) {}
+      return;
+    }
+
     if (!drawing) return;
     const { x, y } = getPos(e);
     const canvas = canvasRef.current;
@@ -1950,6 +2667,11 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onSend }) => {
   };
 
   const end = () => {
+    if (tool === 'laser') {
+      updateCloud({ laserActive: false });
+      return;
+    }
+
     if (drawing) {
       setDrawing(false);
       saveState();
@@ -1958,31 +2680,128 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onSend }) => {
 
   return (
     <div className="h-full flex flex-col bg-white">
-      {/* Sleek Canvas Palette Bar */}
-      <div className="flex gap-3 p-3.5 border-b bg-slate-50/60 justify-center">
-        {['#1e293b', '#ef4444', '#3b82f6', '#10b981', '#f59e0b'].map(c => (
-          <button 
-            key={c} 
-            onClick={() => setColor(c)} 
-            type="button"
-            className={`w-7.5 h-7.5 rounded-full border-2 cursor-pointer transition-all ${
-              color === c ? 'border-blue-600 scale-115' : 'border-slate-100'
-            }`} 
-            style={{ backgroundColor: c }}
-          />
-        ))}
+      {/* Sleek Toolbar for Tools, Stamps and Zoom */}
+      <div className="flex flex-col gap-2 p-3 border-b bg-slate-50 border-slate-200">
+        
+        {/* Tool switches & Zoom slider */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          {/* Tool switches */}
+          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/30">
+            {[
+              { id: 'draw', label: '画笔 / Pen' },
+              { id: 'stamp', label: '图章 / Stamp' },
+              { id: 'laser', label: '激光笔 / Laser' }
+            ].map(t => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTool(t.id as any)}
+                className={`px-3 py-1 text-[11px] font-bold rounded-lg cursor-pointer transition-all ${
+                  tool === t.id 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Zoom Slider */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[10px] text-slate-400 font-extrabold uppercase">放大 / Zoom:</span>
+            <input 
+              type="range"
+              min={1}
+              max={2.5}
+              step={0.1}
+              value={zoomFactor}
+              onChange={e => setZoomFactor(parseFloat(e.target.value))}
+              className="w-20 cursor-pointer accent-blue-600 h-1 bg-slate-200 rounded-lg appearance-none"
+            />
+            <span className="text-[10px] font-mono font-bold text-slate-500 w-10 text-right">{Math.round(zoomFactor * 100)}%</span>
+          </div>
+        </div>
+
+        {/* Dynamic options when tools match */}
+        <div className="flex items-center justify-between mt-1 border-t border-slate-200/40 pt-2 gap-4">
+          
+          {/* Left Side options helper */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-slate-400 font-extrabold uppercase shrink-0">颜色 / Colors:</span>
+            <div className="flex gap-1.5 shrink-0">
+              {['#1e293b', '#ef4444', '#3b82f6', '#10b981', '#f59e0b'].map(c => (
+                <button 
+                  key={c} 
+                  onClick={() => setColor(c)} 
+                  type="button"
+                  className={`w-6 h-6 rounded-full border cursor-pointer transition-all ${
+                    color === c ? 'border-slate-500 ring-2 ring-blue-500/10' : 'border-slate-200/60 shadow-sm'
+                  }`} 
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Right Side context widgets */}
+          {tool === 'stamp' && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-slate-400 font-extrabold uppercase shrink-0">图章 / STAMPS:</span>
+              <div className="flex gap-1 bg-white p-0.5 rounded-lg border border-slate-250 shrink-0">
+                {[
+                  { id: 'arrow', label: '➔' },
+                  { id: 'check', label: '✔' },
+                  { id: 'star', label: '★' },
+                  { id: 'question', label: '❓' },
+                  { id: 'heart', label: '❤️' }
+                ].map(st => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => setSelectedStamp(st.id as any)}
+                    className={`w-6.5 h-6.5 text-xs rounded-md font-bold flex items-center justify-center transition-all cursor-pointer ${
+                      selectedStamp === st.id 
+                        ? 'bg-blue-50 text-blue-650 font-black border border-blue-250 shadow-sm' 
+                        : 'text-slate-450 hover:bg-slate-50'
+                    }`}
+                  >
+                    {st.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tool === 'laser' && (
+            <div className="text-[10px] text-rose-500 font-extrabold flex items-center gap-1.5 animate-pulse shrink-0">
+              <span className="w-1.5 h-1.5 bg-rose-500 rounded-full"></span>
+              LASER TRACK ENGAGED
+            </div>
+          )}
+        </div>
       </div>
-      <canvas 
-        ref={canvasRef} 
-        onMouseDown={start} 
-        onMouseMove={move} 
-        onMouseUp={end} 
-        onMouseLeave={end}
-        onTouchStart={start} 
-        onTouchMove={move} 
-        onTouchEnd={end} 
-        className="flex-1 w-full touch-none cursor-crosshair bg-slate-50/10" 
-      />
+
+      {/* Scrollable, Zoomable Canvas Section */}
+      <div className="flex-grow w-full overflow-auto bg-slate-50 flex items-center justify-center relative p-1 shadow-inner h-0">
+        <div 
+          className="transition-transform duration-200 origin-center bg-white border border-slate-150 rounded-xl overflow-hidden relative w-full h-full"
+          style={{ transform: `scale(${zoomFactor})` }}
+        >
+          <canvas 
+            ref={canvasRef} 
+            onMouseDown={start} 
+            onMouseMove={move} 
+            onMouseUp={end} 
+            onMouseLeave={end}
+            onTouchStart={start} 
+            onTouchMove={move} 
+            onTouchEnd={end} 
+            className="w-full h-full touch-none cursor-crosshair absolute inset-0" 
+          />
+        </div>
+      </div>
+
       <div className="p-3 bg-white border-t flex flex-col gap-3 shrink-0">
         {/* Undo and Redo controls stacked on top */}
         <div className="flex gap-2">

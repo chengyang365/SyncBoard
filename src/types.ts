@@ -25,4 +25,21 @@ export interface RoomData {
   timerTimeLeft?: number;
   timerRunning?: boolean;
   timerUpdated?: number;
+
+  // Laser Pointer State
+  laserX?: number;
+  laserY?: number;
+  laserActive?: boolean;
+
+  // Sync Room Theme State
+  theme?: 'light' | 'dark';
+
+  // Shared History List
+  historyList?: Array<{
+    id: string;
+    type: 'text' | 'image';
+    content: string;
+    imageData: string | null;
+    savedAt: number;
+  }>;
 }
