@@ -16,6 +16,7 @@ import {
   getDoc,
   getDocFromServer
 } from 'firebase/firestore';
+import QRCode from 'qrcode';
 import { 
   Type, 
   Smartphone, 
@@ -38,7 +39,25 @@ import {
   RefreshCw,
   Download,
   ShieldCheck,
-  Zap
+  Zap,
+  Bold,
+  Italic,
+  Strikethrough,
+  QrCode,
+  RotateCcw,
+  RotateCw,
+  History,
+  Volume2,
+  Palette,
+  Play,
+  Pause,
+  UserCheck,
+  Timer as TimerIcon,
+  ChevronDown,
+  Plus,
+  Minus,
+  Sparkles,
+  Hourglass
 } from 'lucide-react';
 import { RoomData } from './types';
 
@@ -334,6 +353,85 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
   const [copied, setCopied] = useState<boolean>(false);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
   const [zoom, setZoom] = useState<number>(1);
+  const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
+  const lastSpeakTrigger = useRef<number | undefined>(undefined);
+
+  // Countdown clock state
+  const [localTimerSeconds, setLocalTimerSeconds] = useState<number>(0);
+  // Picker roll animation states
+  const [localRolledName, setLocalRolledName] = useState<string>('');
+  const [isLocalRolling, setIsLocalRolling] = useState<boolean>(false);
+  const lastRollTrigger = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (data?.type === 'timer') {
+      const running = data.timerRunning || false;
+      const baseSeconds = data.timerTimeLeft ?? 0;
+      const updatedTime = data.timerUpdated ?? Date.now();
+
+      if (running) {
+        const elapsed = Math.floor((Date.now() - updatedTime) / 1000);
+        const currentLeft = Math.max(0, baseSeconds - elapsed);
+        setLocalTimerSeconds(currentLeft);
+
+        const interval = setInterval(() => {
+          const tElapsed = Math.floor((Date.now() - updatedTime) / 1000);
+          const tLeft = Math.max(0, baseSeconds - tElapsed);
+          setLocalTimerSeconds(tLeft);
+          if (tLeft === 0) {
+            clearInterval(interval);
+          }
+        }, 200);
+        return () => clearInterval(interval);
+      } else {
+        setLocalTimerSeconds(baseSeconds);
+      }
+    }
+  }, [data?.type, data?.timerTimeLeft, data?.timerRunning, data?.timerUpdated]);
+
+  useEffect(() => {
+    if (data?.type === 'namePicker' && data?.pickerRollTrigger) {
+      if (lastRollTrigger.current !== data.pickerRollTrigger) {
+        lastRollTrigger.current = data.pickerRollTrigger;
+        
+        const names = (data.namesList || '')
+          .split(/[\n,;，；]+/)
+          .map(n => n.trim())
+          .filter(n => n.length > 0);
+          
+        if (names.length > 0) {
+          setIsLocalRolling(true);
+          let counter = 0;
+          const interval = setInterval(() => {
+            const randomIndex = Math.floor(Math.random() * names.length);
+            setLocalRolledName(names[randomIndex]);
+            counter++;
+          }, 80);
+          
+          setTimeout(() => {
+            clearInterval(interval);
+            setIsLocalRolling(false);
+          }, 1500);
+        }
+      }
+    }
+  }, [data?.type, data?.pickerRollTrigger, data?.namesList]);
+
+  useEffect(() => {
+    if (roomCode) {
+      const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+      QRCode.toDataURL(inviteUrl, {
+        width: 256,
+        margin: 1,
+        color: {
+          dark: '#1e293b',
+          light: '#ffffff'
+        }
+      })
+      .then(url => setQrCodeUrl(url))
+      .catch(err => console.error("Failed to generate QR Code", err));
+    }
+  }, [roomCode]);
 
   useEffect(() => {
     let code = safeStorage.getItem('syncboard_room');
@@ -352,7 +450,7 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
           await setDoc(roomRef, {
             hostId: user.uid,
             type: 'text',
-            content: 'SyncBoard 准备就绪！\n输入房号开始同步。\n\nSyncBoard sedia!\nMasukkan kod bilik untuk mula.',
+            content: '',
             imageData: null,
             align: 'center',
             createdAt: serverTimestamp(),
@@ -375,7 +473,35 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
 
     const unsubscribe = onSnapshot(roomRef, (snapshot) => {
       if (snapshot.exists()) {
-        setData(snapshot.data() as RoomData);
+        const fetched = snapshot.data() as RoomData;
+        setData(fetched);
+        
+        if (fetched.speakTrigger) {
+          if (lastSpeakTrigger.current !== undefined && fetched.speakTrigger !== lastSpeakTrigger.current) {
+            if (fetched.type === 'text' && fetched.content) {
+              try {
+                if (typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis) {
+                  window.speechSynthesis.cancel();
+                  if (typeof SpeechSynthesisUtterance !== 'undefined') {
+                    const utterance = new SpeechSynthesisUtterance(fetched.content);
+                    // Simple regex to choose language (Chinese or generic/English)
+                    if (/[\u4e00-\u9fa5]/.test(fetched.content)) {
+                      utterance.lang = 'zh-CN';
+                    } else {
+                      utterance.lang = 'en-US';
+                    }
+                    window.speechSynthesis.speak(utterance);
+                  }
+                }
+              } catch (speechErr) {
+                console.warn("Speech synthesis is not supported or restricted in this environment:", speechErr);
+              }
+            }
+          }
+          lastSpeakTrigger.current = fetched.speakTrigger;
+        } else {
+          lastSpeakTrigger.current = 0;
+        }
       }
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, `artifacts/${appId}/public/data/rooms/room_${code}`);
@@ -476,6 +602,21 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
 
         {/* Access Code and Channel Tag */}
         <div className="flex items-center gap-6">
+          {qrCodeUrl && (
+            <div className="group relative">
+              <div 
+                className="p-1.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl cursor-pointer shadow-sm transition-all flex items-center justify-center"
+                title="扫码加入 / Scan to Join"
+              >
+                <img src={qrCodeUrl} className="w-10 h-10 object-contain rounded" alt="QR Code" />
+              </div>
+              <div className="absolute top-14 right-0 invisible group-hover:visible opacity-0 group-hover:opacity-100 bg-white p-4 rounded-2xl shadow-2xl border border-slate-200 transition-all duration-200 w-52 text-center z-50">
+                <img src={qrCodeUrl} className="w-44 h-44 mx-auto object-contain rounded-xl" alt="QR Code Expanded" />
+                <p className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider mt-2">扫码一键加入 / Scan to Join</p>
+                <span className="text-[8px] text-slate-400 block mt-1 select-all break-all">{`${window.location.origin}${window.location.pathname}?room=${roomCode}`}</span>
+              </div>
+            </div>
+          )}
           <div className="flex flex-col items-end">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Room Access Code</span>
             <div className="flex items-center gap-2 mt-0.5">
@@ -498,8 +639,16 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
           {/* Action indicator labels top-left */}
           <div className="absolute top-6 left-6 flex gap-2 z-10 bg-white/70 backdrop-blur-sm p-1.5 rounded-2xl border border-slate-100">
             <div className="px-3 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-500 uppercase tracking-wide">4K RESOLUTION</div>
-            <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${data?.type === 'image' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'}`}>
-              {data?.type === 'image' ? 'WHITEBOARD SKETCH / IMAGE' : 'LIVE TEXT SYNC'}
+            <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
+              data?.type === 'image' ? 'bg-emerald-50 text-emerald-700' :
+              data?.type === 'timer' ? 'bg-purple-50 text-purple-700' :
+              data?.type === 'namePicker' ? 'bg-amber-50 text-amber-750' :
+              'bg-blue-50 text-blue-700'
+            }`}>
+              {data?.type === 'image' ? 'WHITEBOARD SKETCH' :
+               data?.type === 'timer' ? 'COUNTDOWN TIMER' :
+               data?.type === 'namePicker' ? 'RANDOM NAME PICKER' :
+               'LIVE TEXT SYNC'}
             </div>
           </div>
 
@@ -516,6 +665,89 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
                   referrerPolicy="no-referrer"
                 />
               </div>
+            ) : data?.type === 'timer' ? (
+              /* Countdown Timer View */
+              <div className="flex flex-col items-center justify-center p-12 bg-slate-900/5 border border-slate-200/50 rounded-[3rem] shadow-xl w-full max-w-2xl text-center backdrop-blur-sm animate-fade-in">
+                <div className="p-4 bg-purple-100 text-purple-600 rounded-3xl mb-6 shadow-sm">
+                  <TimerIcon size={36} className={data.timerRunning ? "animate-spin-slow" : ""} />
+                </div>
+                <h3 className="text-sm font-extrabold text-slate-400 uppercase tracking-widest mb-1">COUNTDOWN TIMER / 倒计时器</h3>
+                <span className="text-[11px] font-mono text-emerald-500 font-black tracking-wide bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full mb-8">
+                  {data.timerRunning ? "● ACTIVE" : "⏸ PAUSED"}
+                </span>
+
+                <div className={`text-8xl md:text-9xl font-mono font-black tracking-tighter tabular-nums mb-8 ${localTimerSeconds <= 10 && localTimerSeconds > 0 ? "text-rose-600 scale-105 transition-all duration-200 animate-pulse" : "text-slate-800"}`}>
+                  {(() => {
+                    const mins = Math.floor(localTimerSeconds / 60);
+                    const secs = localTimerSeconds % 60;
+                    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                  })()}
+                </div>
+
+                <div className="w-full bg-slate-100 h-4 rounded-full overflow-hidden border border-slate-200/60 p-0.5 mb-8">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-300 ${localTimerSeconds <= 10 ? "bg-rose-500 animate-pulse" : "bg-gradient-to-r from-purple-500 to-indigo-600"}`}
+                    style={{ width: `${Math.min(100, data.timerDuration ? (localTimerSeconds / data.timerDuration) * 100 : 0)}%` }}
+                  />
+                </div>
+
+                {localTimerSeconds === 0 && data.timerDuration && data.timerDuration > 0 ? (
+                  <div className="animate-bounce bg-rose-50 border border-rose-200/80 p-4.5 rounded-2xl w-full">
+                    <span className="text-xl font-black text-rose-600 tracking-tight block">⏰ TIME'S UP! / 时间到！</span>
+                    <span className="text-xs font-semibold text-rose-400 block mt-1.5">Masa Tamat. Please proceed with the next agenda.</span>
+                  </div>
+                ) : (
+                  <div className="text-sm font-bold text-slate-500 flex items-center gap-2">
+                    <Hourglass size={14} className={data.timerRunning ? "animate-pulse" : ""} />
+                    <span>设置限时: {Math.floor((data.timerDuration || 0) / 60)} 分钟 / Set: {Math.floor((data.timerDuration || 0) / 60)}m</span>
+                  </div>
+                )}
+              </div>
+            ) : data?.type === 'namePicker' ? (
+              /* Random Name Picker View */
+              <div className="flex flex-col items-center justify-center p-12 bg-slate-900/5 border border-slate-200/50 rounded-[3rem] shadow-xl w-full max-w-2xl text-center backdrop-blur-sm relative overflow-hidden animate-fade-in">
+                <div className="p-4 bg-amber-100 text-amber-650 rounded-3xl mb-6 shadow-sm">
+                  <UserCheck size={36} className={isLocalRolling ? "animate-bounce" : ""} />
+                </div>
+                <h3 className="text-sm font-extrabold text-slate-400 uppercase tracking-widest mb-4">RANDOM NAME PICKER / 幸运抽签</h3>
+
+                {isLocalRolling ? (
+                  <div className="space-y-4 py-8">
+                    <div className="text-[10px] font-extrabold text-amber-500 uppercase tracking-widest animate-pulse">ROLLING NAMES... / 正在挑选</div>
+                    <div className="text-5xl md:text-6xl font-black text-blue-600 scale-95 transition-all duration-100 bg-blue-50/50 border border-blue-100 px-10 py-6 rounded-[2rem] shadow-inner select-none font-sans">
+                      {localRolledName}
+                    </div>
+                  </div>
+                ) : data.pickedResult ? (
+                  <div className="space-y-6 py-6 w-full animate-fade-in">
+                    <div className="flex justify-center items-center gap-2.5">
+                      <Sparkles className="text-amber-500 animate-pulse" size={20} />
+                      <span className="text-xs font-extrabold text-amber-500 uppercase tracking-widest">CONGRATULATIONS / 恭喜被选中者</span>
+                      <Sparkles className="text-amber-500" size={20} />
+                    </div>
+                    <div className="text-5xl md:text-6xl font-sans font-black text-slate-900 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 px-12 py-8 rounded-[2.5rem] shadow-lg shadow-amber-100/40 select-all relative overflow-hidden inline-block max-w-full break-words">
+                      {data.pickedResult}
+                    </div>
+                    <div className="text-xs font-bold text-slate-400 mt-2">
+                      🎉 幸运得主已产生！🎉
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4 py-8">
+                    <p className="text-slate-500 text-lg font-bold">准备就绪，等待移动端指令启动 / Waiting for signal...</p>
+                    <div className="text-xs text-slate-400 font-semibold bg-slate-50 border border-slate-100 p-4 rounded-xl">
+                      {data.namesList ? (
+                        <div>
+                          候选成员 ({data.namesList.split(/[\n,;，；]+/).filter(Boolean).length} 位):{' '}
+                          <span className="text-blue-600 font-mono text-[10px] block mt-1.5 truncate max-w-md mx-auto">{data.namesList.replace(/\n/g, ', ')}</span>
+                        </div>
+                      ) : (
+                        "请在管理员手机端输入候选名单，然后点击 🍀 随机提取"
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className={`w-full max-w-4xl p-6 ${
                 data?.align === 'center' ? 'text-center' : 
@@ -523,17 +755,47 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack }) => {
                 data?.align === 'justify' ? 'text-justify' : 'text-left'
               }`}>
                 {data?.content ? (
-                  <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold text-slate-900 leading-[1.25] tracking-tight whitespace-pre-wrap break-words selection:bg-blue-250">
+                  <h2 
+                    className={`${
+                      data?.fontFamily === 'serif' ? 'font-serif' : data?.fontFamily === 'mono' ? 'font-mono' : 'font-sans'
+                    } ${
+                      data?.bold ? 'font-black' : 'font-semibold'
+                    } ${
+                      data?.italic ? 'italic' : 'not-italic'
+                    } ${
+                      data?.strikethrough ? 'line-through' : 'no-underline'
+                    } leading-[1.25] tracking-tight whitespace-pre-wrap break-words selection:bg-blue-250`}
+                    style={{
+                      color: data?.textColor || undefined,
+                      fontSize: data?.fontSize ? `${data.fontSize}px` : undefined
+                    }}
+                  >
                     {data.content}
                   </h2>
                 ) : (
-                  <div className="space-y-4">
-                    <h2 className="text-3xl md:text-5xl font-black text-slate-300 leading-snug tracking-tight">
-                      等待移动端进行连接与展示...
-                    </h2>
-                    <p className="text-slate-400 text-lg font-medium">
-                      请使用手机浏览器扫描或输入房间号 <span className="font-mono text-slate-800 bg-slate-100 px-2 py-1 rounded-lg">{roomCode}</span> 开启实时投屏、书写跟拍摄投射。
-                    </p>
+                  <div className="flex flex-col md:flex-row items-center gap-10 max-w-4xl p-10 bg-white/50 backdrop-blur-sm rounded-[2rem] border border-slate-200/50 shadow-lg text-left">
+                    <div className="flex-1 space-y-4">
+                      <h2 className="text-3xl md:text-4xl font-black text-slate-800 leading-snug tracking-tight">
+                        等待移动端连接 / Menanti Sambung...
+                      </h2>
+                      <p className="text-slate-500 text-sm md:text-base font-medium">
+                        请使用手机浏览器输入房间提取码 <span className="font-mono text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl font-bold tracking-tight border border-blue-150">{roomCode}</span> 开启实时流同步。
+                      </p>
+                      <div className="text-xs text-slate-400 font-semibold space-y-1 bg-slate-100/60 p-4 rounded-xl border border-slate-200/40">
+                        <div>或者使用系统相机扫描右侧二维码，移动端将自动配对建立流式连接。</div>
+                        <div className="text-blue-500 font-mono text-[9px] break-all mt-1">{`${window.location.origin}${window.location.pathname}?room=${roomCode}`}</div>
+                      </div>
+                    </div>
+                    {qrCodeUrl ? (
+                      <div className="flex flex-col items-center p-3.5 bg-white border border-slate-200 rounded-2xl shrink-0 shadow-md">
+                        <img src={qrCodeUrl} className="w-40 h-40 object-contain rounded-xl" alt="Lobby QR Code" />
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2.5 flex items-center gap-1"><QrCode size={11} /> 扫码一键加入 / SCAN JOIN</span>
+                      </div>
+                    ) : (
+                      <div className="w-48 h-48 bg-slate-100 rounded-2xl flex items-center justify-center border border-dashed border-slate-300 animate-pulse shrink-0">
+                        <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -618,6 +880,14 @@ interface ClientViewProps {
   onBack: () => void;
 }
 
+interface HistoryItem {
+  id: string;
+  type: 'text' | 'image';
+  content: string;
+  imageData: string | null;
+  savedAt: number;
+}
+
 const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
   const urlParams = new URLSearchParams(window.location.search);
   const initialRoom = urlParams.get('room');
@@ -630,8 +900,105 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [roomData, setRoomData] = useState<RoomData | null>(null);
   
+  const [localClientTimerSeconds, setLocalClientTimerSeconds] = useState<number>(0);
+
+  useEffect(() => {
+    if (roomData?.type === 'timer') {
+      const running = roomData.timerRunning || false;
+      const baseSeconds = roomData.timerTimeLeft ?? 0;
+      const updatedTime = roomData.timerUpdated ?? Date.now();
+
+      if (running) {
+        const elapsed = Math.floor((Date.now() - updatedTime) / 1000);
+        const currentLeft = Math.max(0, baseSeconds - elapsed);
+        setLocalClientTimerSeconds(currentLeft);
+
+        const interval = setInterval(() => {
+          const tElapsed = Math.floor((Date.now() - updatedTime) / 1000);
+          const tLeft = Math.max(0, baseSeconds - tElapsed);
+          setLocalClientTimerSeconds(tLeft);
+          if (tLeft === 0) {
+            clearInterval(interval);
+          }
+        }, 300);
+        return () => clearInterval(interval);
+      } else {
+        setLocalClientTimerSeconds(baseSeconds);
+      }
+    }
+  }, [roomData?.type, roomData?.timerTimeLeft, roomData?.timerRunning, roomData?.timerUpdated]);
+  
+  const [sessionHistory, setSessionHistory] = useState<HistoryItem[]>([]);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const timeoutRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (roomCode) {
+      const raw = safeStorage.getItem(`syncboard_history_${roomCode}`);
+      if (raw) {
+        try {
+          setSessionHistory(JSON.parse(raw));
+        } catch (e) {
+          setSessionHistory([]);
+        }
+      } else {
+        setSessionHistory([]);
+      }
+    }
+  }, [roomCode]);
+
+  const addToHistory = (type: 'text' | 'image', content: string, imageData: string | null) => {
+    if (type === 'text' && !content.trim()) return;
+    if (type === 'image' && !imageData) return;
+    
+    setSessionHistory(prev => {
+      if (prev.length > 0) {
+        const last = prev[0];
+        if (last.type === type) {
+          if (type === 'text' && last.content === content) return prev;
+          if (type === 'image' && last.imageData === imageData) return prev;
+        }
+      }
+      
+      const newItem: HistoryItem = {
+        id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        type,
+        content,
+        imageData,
+        savedAt: Date.now()
+      };
+      
+      const nextList = [newItem, ...prev.filter(item => {
+        if (item.type !== type) return true;
+        if (type === 'text') return item.content !== content;
+        return item.imageData !== imageData;
+      })].slice(0, 5);
+      
+      safeStorage.setItem(`syncboard_history_${roomCode}`, JSON.stringify(nextList));
+      return nextList;
+    });
+  };
+
+  const recallHistoryItem = (item: HistoryItem) => {
+    setStatus('syncing');
+    
+    // Maintain formatting metadata of recalled item or clear to item defaults
+    updateCloud({ 
+      type: item.type, 
+      content: item.content, 
+      imageData: item.imageData 
+    })
+      .then(() => {
+        setStatus('idle');
+        if (item.type === 'text') {
+          setText(item.content);
+        } else {
+          setText('');
+        }
+      })
+      .catch(() => setStatus('error'));
+  };
 
   useEffect(() => {
     if (step === 'remote' && roomCode) {
@@ -710,6 +1077,25 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
     }
   };
 
+  const handleSpeak = async () => {
+    if (!text.trim()) return;
+    setStatus('syncing');
+    try {
+      await updateCloud({ 
+        type: 'text', 
+        content: text, 
+        imageData: null, 
+        speakTrigger: Date.now() 
+      });
+      setStatus('idle');
+      try {
+        if (navigator.vibrate) navigator.vibrate(50);
+      } catch (e) {}
+    } catch (e) {
+      setStatus('error');
+    }
+  };
+
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setText(val);
@@ -717,7 +1103,10 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
       updateCloud({ type: 'text', content: val, imageData: null })
-        .then(() => setStatus('idle'))
+        .then(() => {
+          setStatus('idle');
+          addToHistory('text', val, null);
+        })
         .catch(() => setStatus('error'));
     }, 450);
   };
@@ -731,6 +1120,7 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
       await updateCloud({ type: 'image', imageData: base64, content: '' });
       setText(''); 
       setStatus('idle');
+      addToHistory('image', '', base64);
       try {
         if (navigator.vibrate) navigator.vibrate(50);
       } catch (e) {
@@ -813,98 +1203,588 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack }) => {
         </div>
       </div>
 
+      {/* Horizontal App Mode Selector */}
+      <div className="bg-white px-4 py-2 border-b border-slate-200 flex gap-2 overflow-x-auto scrollbar-none shrink-0 no-scrollbar">
+        {[
+          { id: 'text', icon: <Type size={13} />, label: '实时投影 / Text' },
+          { id: 'image', icon: <PenTool size={13} />, label: '白板手写 / Sketch' },
+          { id: 'timer', icon: <TimerIcon size={13} />, label: '倒计时 / Timer' },
+          { id: 'namePicker', icon: <UserCheck size={13} />, label: '幸运抽签 / Picker' }
+        ].map(m => {
+          const active = roomData?.type === m.id || (m.id === 'text' && roomData?.type === undefined);
+          return (
+            <button
+              key={m.id}
+              type="type"
+              onClick={async () => {
+                setStatus('syncing');
+                const patch: Partial<RoomData> = { type: m.id as any };
+                
+                if (m.id === 'timer' && !roomData?.timerDuration) {
+                  patch.timerDuration = 180;
+                  patch.timerTimeLeft = 180;
+                  patch.timerRunning = false;
+                  patch.timerUpdated = Date.now();
+                }
+                if (m.id === 'namePicker' && roomData?.namesList === undefined) {
+                  patch.namesList = "张三, 李四, 王五, 赵六, 孙七";
+                  patch.pickedResult = null;
+                  patch.isPickerRolling = false;
+                }
+                
+                await updateCloud(patch);
+                setStatus('idle');
+                if (m.id === 'image') {
+                  setInputMode('draw');
+                } else {
+                  setInputMode('text');
+                }
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer border ${
+                active 
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-100/80' 
+                  : 'bg-slate-50 text-slate-605 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              {m.icon}
+              <span>{m.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="flex-1 p-4 flex flex-col gap-4 overflow-hidden max-w-lg mx-auto w-full">
         
-        {/* Style and Alignment Toolbar */}
-        <div className="flex bg-white p-1.5 rounded-2xl shadow-sm self-center border border-slate-200/60 justify-center w-full">
-          <div className="flex w-full items-center justify-between px-2">
-            <span className="text-xs font-extrabold text-slate-400 tracking-wider">ALIGN CONTENT</span>
-            <div className="flex gap-1.5">
+        {/* Style, Alignment and Formatting Toolbar */}
+        <div className="flex flex-col bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60 w-full gap-2 text-slate-800">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">Align & Format</span>
+              {inputMode === 'text' && (
+                <button 
+                  type="button"
+                  onClick={handleSpeak}
+                  disabled={!text.trim()}
+                  className={`px-2.5 py-1 text-[10px] rounded-lg font-black tracking-tight transition-all flex items-center gap-1.5 cursor-pointer border ${
+                    text.trim()
+                      ? 'bg-blue-50 hover:bg-blue-100 text-blue-650 border-blue-200'
+                      : 'bg-slate-50 text-slate-350 border-slate-100 cursor-not-allowed'
+                  }`}
+                  title="Click read text button on phone and host board will play the audio"
+                >
+                  <Volume2 size={11} className="shrink-0" />
+                  <span>朗读文字 / SPEAK</span>
+                </button>
+              )}
+            </div>
+            <div className="flex gap-1">
+              {/* Bold, Italic, Strikethrough */}
+              <button 
+                type="button"
+                onClick={() => updateCloud({ bold: !roomData?.bold })}
+                className={`p-2 rounded-xl transition-all cursor-pointer ${
+                  roomData?.bold 
+                    ? 'bg-blue-600 text-white shadow shadow-blue-100' 
+                    : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                }`}
+                title="Bold"
+              >
+                <Bold size={15} />
+              </button>
+              <button 
+                type="button"
+                onClick={() => updateCloud({ italic: !roomData?.italic })}
+                className={`p-2 rounded-xl transition-all cursor-pointer ${
+                  roomData?.italic 
+                    ? 'bg-blue-600 text-white shadow shadow-blue-100' 
+                    : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                }`}
+                title="Italic"
+              >
+                <Italic size={15} />
+              </button>
+              <button 
+                type="button"
+                onClick={() => updateCloud({ strikethrough: !roomData?.strikethrough })}
+                className={`p-2 rounded-xl transition-all cursor-pointer ${
+                  roomData?.strikethrough 
+                    ? 'bg-blue-600 text-white shadow shadow-blue-100' 
+                    : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                }`}
+                title="Strikethrough"
+              >
+                <Strikethrough size={15} />
+              </button>
+
+              <div className="w-px h-6 bg-slate-200 mx-1 self-center" />
+
+              {/* Alignments */}
               {[
-                { id: 'left', icon: <AlignLeft size={16}/> },
-                { id: 'center', icon: <AlignCenter size={16}/> },
-                { id: 'right', icon: <AlignRight size={16}/> },
-                { id: 'justify', icon: <AlignJustify size={16}/> }
+                { id: 'left', icon: <AlignLeft size={15}/> },
+                { id: 'center', icon: <AlignCenter size={15}/> },
+                { id: 'right', icon: <AlignRight size={15}/> },
+                { id: 'justify', icon: <AlignJustify size={15}/> }
               ].map(item => (
                 <button 
                   key={item.id}
+                  type="button"
                   onClick={() => updateCloud({ align: item.id })}
-                  className={`p-2.5 rounded-xl transition-all cursor-pointer ${
+                  className={`p-2 rounded-xl transition-all cursor-pointer ${
                     roomData?.align === item.id 
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' 
+                      ? 'bg-blue-600 text-white shadow shadow-blue-100' 
                       : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
                   }`}
-                  title={`对齐: ${item.id}`}
+                  title={`Align: ${item.id}`}
                 >
                   {item.icon}
                 </button>
               ))}
             </div>
           </div>
-        </div>
 
-        {/* Input Panel Frame */}
-        <div className="flex-1 flex flex-col min-h-0 bg-white rounded-3xl border border-slate-250/50 shadow-md p-4">
-          {inputMode === 'text' ? (
-            <textarea 
-              className={`flex-1 w-full p-4 text-base focus:bg-slate-50/20 rounded-2xl outline-none resize-none transition-all ${
-                roomData?.align === 'center' ? 'text-center' : 
-                roomData?.align === 'right' ? 'text-right' : 
-                roomData?.align === 'justify' ? 'text-justify' : 'text-left'
-              }`}
-              placeholder="在这里输入想要同步的文字。大屏幕端将会以超低延迟与优雅的排版实时呈现..."
-              value={text}
-              onChange={handleTextChange}
-            />
-          ) : (
-            <div className="flex-1 bg-white rounded-2xl overflow-hidden border border-slate-100">
-               <DrawingCanvas onSend={dataUrl => {
-                 updateCloud({ type: 'image', imageData: dataUrl, content: '' })
-                   .then(() => setStatus('idle'));
-                 setInputMode('text');
-                 try {
-                   if (navigator.vibrate) navigator.vibrate(50);
-                 } catch (e) {
-                   // Safe catch for iframe / sandbox security policy restrictions
-                 }
-               }} />
-            </div>
+          {/* New Font family & custom color presets controls */}
+          {(roomData?.type === 'text' || roomData?.type === undefined) && (
+            <>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between border-t border-slate-100 pt-2.5 mt-1 gap-2.5 text-xs">
+                {/* Font selector dropdown */}
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shrink-0 relative">
+                  <span className="text-[10px] text-slate-400 font-extrabold uppercase">Font / 字体:</span>
+                  <select 
+                    value={roomData?.fontFamily || 'sans'} 
+                    onChange={e => updateCloud({ fontFamily: e.target.value as any })}
+                    className="bg-transparent font-bold text-slate-700 outline-none text-xs cursor-pointer pr-1"
+                  >
+                    <option value="sans">Sans-serif / 默认</option>
+                    <option value="serif">Elegant Serif / 宋体</option>
+                    <option value="mono">Console Mono / 等宽</option>
+                  </select>
+                </div>
+
+                {/* Color select palette and picker */}
+                <div className="flex items-center gap-2 justify-between">
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Palette size={13} className="text-slate-400" />
+                    <span className="text-[10px] text-slate-400 font-extrabold uppercase">Color:</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {['#0f172a', '#2563eb', '#16a34a', '#dc2626', '#9333ea', '#ea580c'].map(c => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => updateCloud({ textColor: c })}
+                        className={`w-5.5 h-5.5 rounded-full border cursor-pointer transition-all duration-100 ${
+                          (roomData?.textColor || '#0f172a') === c 
+                            ? 'border-slate-400 ring-2 ring-blue-100 scale-110 shadow-sm' 
+                            : 'border-transparent hover:scale-105'
+                        }`}
+                        style={{ backgroundColor: c }}
+                        title={`Select color ${c}`}
+                      />
+                    ))}
+                    {/* Native color picker with visual '+' */}
+                    <div className="relative w-5.5 h-5.5 rounded-full border border-dashed border-slate-350 overflow-hidden bg-slate-50 flex items-center justify-center hover:scale-105 cursor-pointer">
+                      <input 
+                        type="color" 
+                        value={roomData?.textColor || '#0f172a'}
+                        onChange={e => updateCloud({ textColor: e.target.value })}
+                        className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                        title="自定义颜色 / Custom"
+                      />
+                      <span className="text-[10px] font-black text-slate-400 pointer-events-none">+</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Font Size controls (slider & plus/minus precision modifiers) */}
+              <div className="flex items-center justify-between border-t border-slate-100 pt-2.5 mt-0.5 gap-3 text-xs">
+                <div className="flex items-center gap-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-wide shrink-0">
+                  <span>Size / 大小:</span>
+                  <span className="font-mono text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-lg text-[10px]">{roomData?.fontSize || 48}px</span>
+                </div>
+                
+                <div className="flex-1 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentSize = roomData?.fontSize || 48;
+                      const nextSize = Math.max(16, currentSize - 4);
+                      updateCloud({ fontSize: nextSize });
+                    }}
+                    className="p-1.5 text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer shrink-0"
+                    title="Decrease size"
+                  >
+                    <Minus size={13} />
+                  </button>
+
+                  <input 
+                    type="range"
+                    min={16}
+                    max={112}
+                    step={4}
+                    value={roomData?.fontSize || 48}
+                    onChange={e => updateCloud({ fontSize: parseInt(e.target.value) })}
+                    className="flex-1 accent-blue-600 h-1.5 bg-slate-100 rounded-lg cursor-pointer outline-none"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentSize = roomData?.fontSize || 48;
+                      const nextSize = Math.min(112, currentSize + 4);
+                      updateCloud({ fontSize: nextSize });
+                    }}
+                    className="p-1.5 text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer shrink-0"
+                    title="Increase size"
+                  >
+                    <Plus size={13} />
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
 
-        {/* Bottom Toolbar Control Slots */}
-        <div className="grid grid-cols-3 gap-3 mb-2">
-          <button 
-            type="button"
-            onClick={() => setInputMode(inputMode === 'text' ? 'draw' : 'text')} 
-            className={`py-4 rounded-2xl flex flex-col items-center justify-center gap-1.5 font-bold shadow-sm cursor-pointer transition-all ${
-              inputMode === 'draw' 
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' 
-                : 'bg-white text-blue-600 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            {inputMode === 'text' ? <PenTool size={22} /> : <Type size={22} />}
-            <span className="text-[10px] tracking-wide font-extrabold">{inputMode === 'text' ? '白板手写 / Sketch' : '文字输入 / Keypad'}</span>
-          </button>
-          
-          <button 
-            type="button"
-            onClick={() => fileInputRef.current?.click()} 
-            className="py-4 bg-white text-emerald-600 border border-slate-250/70 rounded-2xl flex flex-col items-center justify-center gap-1.5 font-bold shadow-sm hover:bg-slate-50 active:bg-slate-50 transition-colors cursor-pointer"
-          >
-            <Camera size={22} />
-            <span className="text-[10px] tracking-wide font-extrabold text-emerald-600">拍摄照片 / Snap</span>
-          </button>
-          
-          <button 
-            type="button"
-            onClick={() => { setText(''); updateCloud({ type: 'text', content: '', imageData: null }); }} 
-            className="py-4 bg-rose-50 text-rose-600 rounded-2xl flex flex-col items-center justify-center gap-1.5 font-bold hover:bg-rose-100 active:bg-rose-100 transition-colors cursor-pointer"
-          >
-            <Trash2 size={22} />
-            <span className="text-[10px] tracking-wide font-extrabold">清空内容 / Clear</span>
-          </button>
-        </div>
+        {/* Session Recall Bar (Sleek Horizontal Clipboard) */}
+        {sessionHistory.length > 0 && (
+          <div className="flex flex-col gap-2 bg-white p-3 rounded-2xl border border-slate-200/60 shadow-sm w-full">
+            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+              <History size={12} className="text-blue-500 animate-pulse" />
+              历史投射记录 / Session History
+            </span>
+            <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-none no-scrollbar">
+              {sessionHistory.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => recallHistoryItem(item)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 hover:border-blue-400 border border-slate-200 rounded-xl cursor-pointer transition-all shrink-0 max-w-[150px] text-left group"
+                >
+                  {item.type === 'image' ? (
+                    <div className="w-6 h-6 bg-slate-200 rounded border border-slate-300 overflow-hidden flex items-center justify-center shrink-0">
+                      <img src={item.imageData!} className="w-full h-full object-cover" alt="History" referrerPolicy="no-referrer" />
+                    </div>
+                  ) : (
+                    <div className="w-6 h-6 bg-blue-50 text-blue-600 rounded border border-blue-150 flex items-center justify-center shrink-0">
+                      <Type size={11} />
+                    </div>
+                  )}
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[10px] font-bold text-slate-700 truncate block">
+                      {item.type === 'text' ? item.content : '白板手写/贴图'}
+                    </span>
+                    <span className="text-[8px] text-slate-400 font-semibold-mono">
+                      {new Date(item.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Input Panel Frame */}
+        {roomData?.type === 'timer' ? (
+          /* TIMER CONTROL INTERFACE */
+          <div className="flex-1 flex flex-col gap-4 bg-white rounded-3xl border border-slate-200 shadow-md p-5 overflow-y-auto animate-fade-in text-slate-850">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-purple-50 text-purple-650 rounded-xl">
+                  <TimerIcon size={18} />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-sm text-slate-800">计时大屏中继终端</h4>
+                  <span className="text-[10px] text-slate-400 font-bold block">Countdown Control Terminal</span>
+                </div>
+              </div>
+              <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold block ${roomData?.timerRunning ? "bg-emerald-50 text-emerald-600 animate-pulse" : "bg-slate-100 text-slate-500"}`}>
+                {roomData?.timerRunning ? "RUNNING" : "PAUSED"}
+              </span>
+            </div>
+
+            {/* Big Digital Readout */}
+            <div className="text-center py-6 bg-slate-50 rounded-2xl border border-slate-150 shadow-inner shrink-0">
+              <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Estimated Remaining / 预计剩余</div>
+              <div className="text-5xl font-mono font-black text-slate-700 mt-1 tabular-nums">
+                {(() => {
+                  const mins = Math.floor(localClientTimerSeconds / 60);
+                  const secs = localClientTimerSeconds % 60;
+                  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                })()}
+              </div>
+            </div>
+
+            {/* Presets and custom settings */}
+            <div className="space-y-3 shrink-0">
+              <span className="text-[10px] text-slate-400 font-extrabold uppercase block tracking-wider">Quick Select Duration / 快速限时</span>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { label: '1m', value: 60 },
+                  { label: '3m', value: 180 },
+                  { label: '5m', value: 300 },
+                  { label: '10m', value: 600 }
+                ].map(p => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={async () => {
+                      setStatus('syncing');
+                      await updateCloud({
+                        timerDuration: p.value,
+                        timerTimeLeft: p.value,
+                        timerRunning: false,
+                        timerUpdated: Date.now()
+                      });
+                      setStatus('idle');
+                    }}
+                    className={`py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                      roomData?.timerDuration === p.value
+                        ? 'bg-purple-600 text-white border-purple-600'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex justify-between items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const left = Math.max(0, (roomData?.timerTimeLeft ?? 180) - 30);
+                    updateCloud({ timerTimeLeft: left, timerUpdated: Date.now() });
+                  }}
+                  className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-705 font-bold text-xs rounded-xl flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Minus size={12} />
+                  <span>30s</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const left = (roomData?.timerTimeLeft ?? 180) + 30;
+                    const dur = (roomData?.timerDuration ?? 180) < left ? left : (roomData?.timerDuration ?? 180);
+                    updateCloud({ timerTimeLeft: left, timerDuration: dur, timerUpdated: Date.now() });
+                  }}
+                  className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-750 font-bold text-xs rounded-xl flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Plus size={12} />
+                  <span>30s</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Primary action controls */}
+            <div className="grid grid-cols-2 gap-3.5 pt-4 border-t border-slate-100 mt-auto shrink-0">
+              <button
+                type="button"
+                onClick={async () => {
+                  setStatus('syncing');
+                  const running = roomData?.timerRunning || false;
+                  let currentLeft = roomData?.timerTimeLeft ?? 180;
+                  if (running) {
+                    const elapsed = Math.floor((Date.now() - (roomData?.timerUpdated ?? Date.now())) / 1000);
+                    currentLeft = Math.max(0, currentLeft - elapsed);
+                  }
+                  await updateCloud({
+                    timerRunning: !running,
+                    timerTimeLeft: currentLeft,
+                    timerUpdated: Date.now()
+                  });
+                  setStatus('idle');
+                }}
+                className={`py-3 rounded-2xl flex items-center justify-center gap-2 font-black text-xs shadow cursor-pointer transition-transform active:scale-95 duration-100 ${
+                  roomData?.timerRunning
+                    ? 'bg-amber-500 text-white shadow-amber-100 hover:bg-amber-600'
+                    : 'bg-purple-600 text-white shadow-purple-100 hover:bg-purple-755'
+                }`}
+              >
+                {roomData?.timerRunning ? <Pause size={14} /> : <Play size={14} />}
+                <span>{roomData?.timerRunning ? 'PAUSE / 暂停' : 'START / 开启'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  setStatus('syncing');
+                  await updateCloud({
+                    timerRunning: false,
+                    timerTimeLeft: roomData?.timerDuration || 180,
+                    timerUpdated: Date.now()
+                  });
+                  setStatus('idle');
+                }}
+                className="py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 rounded-2xl flex items-center justify-center gap-2 font-bold text-xs transition-transform active:scale-95 duration-100 cursor-pointer"
+              >
+                <RotateCcw size={14} />
+                <span>RESET / 重置</span>
+              </button>
+            </div>
+          </div>
+        ) : roomData?.type === 'namePicker' ? (
+          /* NAME PICKER CONTROL INTERFACE */
+          <div className="flex-1 flex flex-col gap-4 bg-white rounded-3xl border border-slate-200 shadow-md p-5 overflow-y-auto animate-fade-in text-slate-850">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-amber-50 text-amber-655 rounded-xl">
+                  <UserCheck size={18} />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-sm text-slate-800">幸运抽取遥控面板</h4>
+                  <span className="text-[10px] text-slate-400 font-bold block">Random Selector Dashboard</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Candidate List input */}
+            <div className="flex-1 flex flex-col gap-2 min-h-[140px]">
+              <div className="flex justify-between items-center shrink-0">
+                <span className="text-[10px] text-slate-400 font-extrabold uppercase block tracking-wider">Candidate Names / 候选名单</span>
+                <span className="text-[9px] font-mono text-slate-500 font-black bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-150">
+                  {(roomData?.namesList || '').split(/[\n,;，；]+/).filter(Boolean).length} 位成员
+                </span>
+              </div>
+              <textarea
+                className="flex-1 w-full p-3 font-semibold text-xs bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white rounded-xl outline-none resize-none transition-all leading-relaxed text-slate-700 font-mono"
+                placeholder="在此输入名字，用逗号或换行分隔。例：&#13;张三&#13;李四&#13;小红&#13;阿德南"
+                value={roomData?.namesList || ''}
+                onChange={e => updateCloud({ namesList: e.target.value })}
+              />
+            </div>
+
+            {/* Picked Result Screen */}
+            {roomData?.pickedResult && (
+              <div className="bg-amber-50/55 border border-amber-200/60 p-3.5 rounded-2xl text-center shadow-inner animate-fade-in relative overflow-hidden shrink-0">
+                <div className="text-[10px] font-extrabold text-amber-500 uppercase tracking-widest flex items-center justify-center gap-1.5 mb-1">
+                  <Sparkles size={11} />
+                  Picked Winner / 选中者
+                </div>
+                <div className="text-lg font-black text-slate-800 tracking-tight select-all">
+                  {roomData?.pickedResult}
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="grid grid-cols-2 gap-3 pb-2 pt-2 border-t border-slate-150 shrink-0">
+              <button
+                type="button"
+                onClick={async () => {
+                  const names = (roomData?.namesList || '')
+                    .split(/[\n,;，；]+/)
+                    .map(n => n.trim())
+                    .filter(n => n.length > 0);
+                  if (names.length === 0) return;
+                  
+                  setStatus('syncing');
+                  const randomName = names[Math.floor(Math.random() * names.length)];
+                  
+                  await updateCloud({
+                    pickerRollTrigger: Date.now(),
+                    pickedResult: randomName
+                  });
+                  setStatus('idle');
+                }}
+                disabled={!(roomData?.namesList || '').trim()}
+                className={`py-3 rounded-2xl font-black text-xs shadow cursor-pointer transition-transform active:scale-95 duration-100 text-white flex items-center justify-center gap-1.5 ${
+                  (roomData?.namesList || '').trim()
+                    ? 'bg-amber-500 shadow-amber-100 hover:bg-amber-600'
+                    : 'bg-slate-200 cursor-not-allowed shadow-none'
+                }`}
+              >
+                <Sparkles size={14} />
+                <span>🍀 随机抽取 / PICK</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  setStatus('syncing');
+                  await updateCloud({ pickedResult: null });
+                  setStatus('idle');
+                }}
+                className="py-3 bg-slate-100 hover:bg-slate-200 text-slate-500 border border-slate-200 rounded-2xl font-bold text-center text-xs transition-transform active:scale-95 duration-100 cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <RotateCcw size={14} />
+                <span>CLEAR / 复位</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex-1 flex flex-col min-h-0 bg-white rounded-3xl border border-slate-250/50 shadow-md p-4">
+              {inputMode === 'text' ? (
+                <textarea 
+                  className={`flex-1 w-full p-4 text-base focus:bg-slate-50/20 rounded-2xl outline-none resize-none transition-all ${
+                    roomData?.align === 'center' ? 'text-center' : 
+                    roomData?.align === 'right' ? 'text-right' : 
+                    roomData?.align === 'justify' ? 'text-justify' : 'text-left'
+                  } ${roomData?.bold ? 'font-black' : 'font-normal'} ${
+                    roomData?.italic ? 'italic' : ''
+                  } ${roomData?.strikethrough ? 'line-through' : ''}`}
+                  placeholder="在这里输入想要同步的文字。大屏幕端将会以超低延迟与优雅的排版实时呈现..."
+                  value={text}
+                  onChange={handleTextChange}
+                  style={{
+                    color: roomData?.textColor || undefined,
+                    fontFamily: roomData?.fontFamily === 'serif' ? 'font-serif' : roomData?.fontFamily === 'mono' ? 'font-mono' : 'font-sans'
+                  }}
+                />
+              ) : (
+                <div className="flex-1 bg-white rounded-2xl overflow-hidden border border-slate-100">
+                   <DrawingCanvas onSend={dataUrl => {
+                     updateCloud({ type: 'image', imageData: dataUrl, content: '' })
+                       .then(() => {
+                         setStatus('idle');
+                         addToHistory('image', '', dataUrl);
+                       });
+                     setInputMode('text');
+                     try {
+                       if (navigator.vibrate) navigator.vibrate(50);
+                     } catch (e) {
+                       // Safe catch
+                     }
+                   }} />
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Toolbar Control Slots */}
+            <div className="grid grid-cols-3 gap-3 mb-2">
+              <button 
+                type="button"
+                onClick={() => setInputMode(inputMode === 'text' ? 'draw' : 'text')} 
+                className={`py-4 rounded-2xl flex flex-col items-center justify-center gap-1.5 font-bold shadow-sm cursor-pointer transition-all ${
+                  inputMode === 'draw' 
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' 
+                    : 'bg-white text-blue-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                {inputMode === 'text' ? <PenTool size={22} /> : <Type size={22} />}
+                <span className="text-[10px] tracking-wide font-extrabold">{inputMode === 'text' ? '白板手写 / Sketch' : '文字输入 / Keypad'}</span>
+              </button>
+              
+              <button 
+                type="button"
+                onClick={() => fileInputRef.current?.click()} 
+                className="py-4 bg-white text-emerald-600 border border-slate-250/70 rounded-2xl flex flex-col items-center justify-center gap-1.5 font-bold shadow-sm hover:bg-slate-50 active:bg-slate-50 transition-colors cursor-pointer"
+              >
+                <Camera size={22} />
+                <span className="text-[10px] tracking-wide font-extrabold text-emerald-600">拍摄照片 / Snap</span>
+              </button>
+              
+              <button 
+                type="button"
+                onClick={() => { setText(''); updateCloud({ type: 'text', content: '', imageData: null }); }} 
+                className="py-4 bg-rose-50 text-rose-600 rounded-2xl flex flex-col items-center justify-center gap-1.5 font-bold hover:bg-rose-100 active:bg-rose-100 transition-colors cursor-pointer"
+              >
+                <Trash2 size={22} />
+                <span className="text-[10px] tracking-wide font-extrabold">清空内容 / Clear</span>
+              </button>
+            </div>
+          </>
+        )}
         <input type="file" ref={fileInputRef} hidden accept="image/*" onChange={handlePhoto} />
       </div>
     </div>
@@ -920,6 +1800,9 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onSend }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [drawing, setDrawing] = useState<boolean>(false);
   const [color, setColor] = useState<string>('#1e293b');
+  
+  const [drawHistory, setDrawHistory] = useState<string[]>([]);
+  const [drawRedoHistory, setDrawRedoHistory] = useState<string[]>([]);
   
   const colorRef = useRef<string>(color);
   
@@ -944,7 +1827,80 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onSend }) => {
     ctx.lineWidth = 4;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    
+    // Save clear base state as starting point
+    const baseState = canvas.toDataURL();
+    setDrawHistory([baseState]);
   }, []);
+
+  const saveState = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const currentState = canvas.toDataURL();
+    setDrawHistory(prev => [...prev, currentState]);
+    setDrawRedoHistory([]);
+  };
+
+  const handleUndo = () => {
+    if (drawHistory.length <= 1) return; // Keep at least the initial blank state
+    
+    const nextHistory = drawHistory.slice(0, drawHistory.length - 1);
+    const poppedState = drawHistory[drawHistory.length - 1];
+    
+    setDrawHistory(nextHistory);
+    setDrawRedoHistory(prev => [poppedState, ...prev]);
+    
+    const prevState = nextHistory[nextHistory.length - 1];
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const dpr = window.devicePixelRatio || 1;
+    ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+    const img = new Image();
+    img.src = prevState;
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, canvas.width / dpr, canvas.height / dpr);
+    };
+  };
+
+  const handleRedo = () => {
+    if (drawRedoHistory.length === 0) return;
+    
+    const nextState = drawRedoHistory[0];
+    const nextRedo = drawRedoHistory.slice(1);
+    
+    setDrawRedoHistory(nextRedo);
+    setDrawHistory(prev => [...prev, nextState]);
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const dpr = window.devicePixelRatio || 1;
+    ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+    const img = new Image();
+    img.src = nextState;
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, canvas.width / dpr, canvas.height / dpr);
+    };
+  };
+
+  const handleReset = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const dpr = window.devicePixelRatio || 1;
+    ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+    
+    const baseState = canvas.toDataURL();
+    setDrawHistory([baseState]);
+    setDrawRedoHistory([]);
+  };
 
   const getPos = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -993,7 +1949,12 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onSend }) => {
     ctx.stroke();
   };
 
-  const end = () => setDrawing(false);
+  const end = () => {
+    if (drawing) {
+      setDrawing(false);
+      saveState();
+    }
+  };
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -1022,38 +1983,65 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onSend }) => {
         onTouchEnd={end} 
         className="flex-1 w-full touch-none cursor-crosshair bg-slate-50/10" 
       />
-      <div className="p-3 bg-white border-t flex gap-3">
-        <button 
-          onClick={() => { 
-            const canvas = canvasRef.current;
-            if (!canvas) return;
-            const ctx = canvas.getContext('2d');
-            ctx?.clearRect(0, 0, canvas.width, canvas.height); 
-          }} 
-          className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-600 transition-colors cursor-pointer text-xs uppercase"
-          type="button"
-        >
-          重写 / Reset
-        </button>
-        <button 
-          onClick={() => {
-            const canvas = canvasRef.current;
-            if (!canvas) return;
-            const temp = document.createElement('canvas');
-            temp.width = canvas.width; 
-            temp.height = canvas.height;
-            const tCtx = temp.getContext('2d');
-            if (!tCtx) return;
-            tCtx.fillStyle = '#ffffff'; 
-            tCtx.fillRect(0, 0, temp.width, temp.height);
-            tCtx.drawImage(canvas, 0, 0);
-            onSend(temp.toDataURL('image/jpeg', 0.7));
-          }} 
-          className="flex-[2] py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-100 transition-all cursor-pointer text-xs uppercase"
-          type="button"
-        >
-          确认投屏 / Push Board
-        </button>
+      <div className="p-3 bg-white border-t flex flex-col gap-3 shrink-0">
+        {/* Undo and Redo controls stacked on top */}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleUndo}
+            disabled={drawHistory.length <= 1}
+            className={`flex-1 py-2.5 rounded-xl flex items-center justify-center gap-1.5 font-bold text-xs border transition-colors ${
+              drawHistory.length > 1 
+                ? 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 cursor-pointer shadow-sm' 
+                : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed'
+            }`}
+          >
+            <RotateCcw size={14} />
+            撤销 / Undo
+          </button>
+          <button
+            type="button"
+            onClick={handleRedo}
+            disabled={drawRedoHistory.length === 0}
+            className={`flex-1 py-2.5 rounded-xl flex items-center justify-center gap-1.5 font-bold text-xs border transition-colors ${
+              drawRedoHistory.length > 0 
+                ? 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 cursor-pointer shadow-sm' 
+                : 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed'
+            }`}
+          >
+            <RotateCw size={14} />
+            重做 / Redo
+          </button>
+        </div>
+        
+        <div className="flex gap-2.5">
+          <button 
+            onClick={handleReset}
+            className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-650 transition-colors cursor-pointer text-xs uppercase"
+            type="button"
+          >
+            重写 / Reset
+          </button>
+          <button 
+            onClick={() => {
+              const canvas = canvasRef.current;
+              if (!canvas) return;
+              const temp = document.createElement('canvas');
+              temp.width = canvas.width; 
+              temp.height = canvas.height;
+              const tCtx = temp.getContext('2d');
+              if (!tCtx) return;
+              tCtx.fillStyle = '#ffffff'; 
+              tCtx.fillRect(0, 0, temp.width, temp.height);
+              tCtx.drawImage(canvas, 0, 0);
+              onSend(temp.toDataURL('image/jpeg', 0.7));
+            }} 
+            className="flex-[2] py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-100 transition-all cursor-pointer text-xs uppercase"
+            type="button"
+          >
+            确认投屏 / Push Board
+          </button>
+        </div>
       </div>
     </div>
   );
