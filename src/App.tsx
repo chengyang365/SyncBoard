@@ -1535,8 +1535,12 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack, globalTheme, setG
   const [status, setStatus] = useState<string>('idle'); 
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [roomData, setRoomData] = useState<RoomData | null>(null);
+  const [localNamesList, setLocalNamesList] = useState<string>('');
   
   const [localClientTimerSeconds, setLocalClientTimerSeconds] = useState<number>(0);
+  const timeoutRef = useRef<any>(null);
+  const namesListTimeoutRef = useRef<any>(null);
+  const hasInitializedRemote = useRef(false);
 
   useEffect(() => {
     if (roomData?.type === 'timer') {
@@ -1567,7 +1571,20 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack, globalTheme, setG
   const [sessionHistory, setSessionHistory] = useState<HistoryItem[]>([]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const timeoutRef = useRef<any>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const namesListTextAreaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (textAreaRef.current && textAreaRef.current.value !== text) {
+      textAreaRef.current.value = text;
+    }
+  }, [text]);
+
+  useEffect(() => {
+    if (namesListTextAreaRef.current && namesListTextAreaRef.current.value !== localNamesList) {
+      namesListTextAreaRef.current.value = localNamesList;
+    }
+  }, [localNamesList]);
 
   useEffect(() => {
     if (roomCode) {
@@ -1643,8 +1660,14 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack, globalTheme, setG
         if (snapshot.exists()) {
           const fetched = snapshot.data() as RoomData;
           setRoomData(fetched);
-          if (fetched.type === 'text' && fetched.content !== text) {
-            setText(fetched.content);
+          if (!hasInitializedRemote.current) {
+            if (fetched.type === 'text') {
+              setText(fetched.content || '');
+            }
+            if (fetched.namesList) {
+              setLocalNamesList(fetched.namesList);
+            }
+            hasInitializedRemote.current = true;
           }
         }
       }, (error) => {
@@ -1734,10 +1757,14 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack, globalTheme, setG
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
-    setText(val);
-    setStatus('syncing');
+    
+    if (status !== 'syncing') {
+      setStatus('syncing');
+    }
+    
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
+      setText(val);
       updateCloud({ type: 'text', content: val, imageData: null })
         .then(() => {
           setStatus('idle');
@@ -2278,14 +2305,25 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack, globalTheme, setG
               <div className="flex justify-between items-center shrink-0">
                 <span className="text-[10px] text-slate-400 font-extrabold uppercase block tracking-wider">候选人名单 / Candidates List</span>
                 <span className="text-[9px] font-mono text-slate-500 font-black bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-150">
-                  {(roomData?.namesList || '').split(/[\n,;，；]+/).filter(Boolean).length} 位成员
+                  {(localNamesList || '').split(/[\n,;，；]+/).filter(Boolean).length} 位成员
                 </span>
               </div>
               <textarea
+                ref={namesListTextAreaRef}
                 className="flex-1 w-full p-3 font-semibold text-xs bg-slate-50 border border-slate-200 focus:border-amber-400 focus:bg-white rounded-xl outline-none resize-none transition-all leading-relaxed text-slate-700 font-mono"
                 placeholder="在此输入名字，用逗号或换行分隔。例：&#13;张三&#13;李四&#13;小红&#13;阿德南"
-                value={roomData?.namesList || ''}
-                onChange={e => updateCloud({ namesList: e.target.value })}
+                defaultValue={localNamesList}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (status !== 'syncing') setStatus('syncing');
+                  if (namesListTimeoutRef.current) clearTimeout(namesListTimeoutRef.current);
+                  namesListTimeoutRef.current = setTimeout(() => {
+                    setLocalNamesList(val);
+                    updateCloud({ namesList: val })
+                      .then(() => setStatus('idle'))
+                      .catch(() => setStatus('error'));
+                  }, 250);
+                }}
               />
             </div>
 
@@ -2307,7 +2345,7 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack, globalTheme, setG
               <button
                 type="button"
                 onClick={async () => {
-                  const names = (roomData?.namesList || '')
+                  const names = (localNamesList || '')
                     .split(/[\n,;，；]+/)
                     .map(n => n.trim())
                     .filter(n => n.length > 0);
@@ -2322,9 +2360,9 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack, globalTheme, setG
                   });
                   setStatus('idle');
                 }}
-                disabled={!(roomData?.namesList || '').trim()}
+                disabled={!(localNamesList || '').trim()}
                 className={`py-3 rounded-2xl font-black text-xs shadow cursor-pointer transition-transform active:scale-95 duration-100 text-white flex items-center justify-center gap-1.5 ${
-                  (roomData?.namesList || '').trim()
+                  (localNamesList || '').trim()
                     ? 'bg-amber-500 shadow-amber-100 hover:bg-amber-600'
                     : 'bg-slate-200 cursor-not-allowed shadow-none'
                 }`}
@@ -2352,6 +2390,7 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack, globalTheme, setG
             <div className="flex-1 flex flex-col min-h-0 bg-white rounded-3xl border border-slate-250/50 shadow-md p-4">
               {inputMode === 'text' ? (
                 <textarea 
+                  ref={textAreaRef}
                   className={`flex-1 w-full p-4 text-base focus:bg-slate-50/20 rounded-2xl outline-none resize-none transition-all ${
                     roomData?.align === 'center' ? 'text-center' : 
                     roomData?.align === 'right' ? 'text-right' : 
@@ -2360,7 +2399,7 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack, globalTheme, setG
                     roomData?.italic ? 'italic' : ''
                   } ${roomData?.strikethrough ? 'line-through' : ''}`}
                   placeholder="在这里输入想要同步的文字。大屏幕端将会以超低延迟与优雅的排版实时呈现..."
-                  value={text}
+                  defaultValue={text}
                   onChange={handleTextChange}
                   style={{
                     color: roomData?.textColor || undefined,
