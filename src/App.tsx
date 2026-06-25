@@ -415,6 +415,8 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack, globalTheme, setGloba
   // New features states & refs
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [laserTrail, setLaserTrail] = useState<{ x: number; y: number; id: number; age: number }[]>([]);
+  const [draggedHistoryItemIndex, setDraggedHistoryItemIndex] = useState<number | null>(null);
+  const [dragOverHistoryItemIndex, setDragOverHistoryItemIndex] = useState<number | null>(null);
   const prevDataRef = useRef<{
     content: string;
     imageData: string | null;
@@ -1425,9 +1427,48 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack, globalTheme, setGloba
               {data.historyList.map((item, index) => {
                 const isActive = (item.type === data.type && 
                                  (item.type === 'text' ? item.content === data.content : item.imageData === data.imageData));
+                const isDragOver = dragOverHistoryItemIndex === index;
+                const isDragged = draggedHistoryItemIndex === index;
+                
                 return (
                   <button
                     key={item.id}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.effectAllowed = 'move';
+                      setDraggedHistoryItemIndex(index);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (dragOverHistoryItemIndex !== index) {
+                        setDragOverHistoryItemIndex(index);
+                      }
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverHistoryItemIndex === index) {
+                        setDragOverHistoryItemIndex(null);
+                      }
+                    }}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      if (draggedHistoryItemIndex === null || draggedHistoryItemIndex === index) return;
+                      const list = [...(data?.historyList || [])];
+                      const [removed] = list.splice(draggedHistoryItemIndex, 1);
+                      list.splice(index, 0, removed);
+                      setDraggedHistoryItemIndex(null);
+                      setDragOverHistoryItemIndex(null);
+                      try {
+                        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', `room_${roomCode}`);
+                        await updateDoc(roomRef, { historyList: list });
+                      } catch (err) {
+                        console.error("Failed to reorder history:", err);
+                      }
+                    }}
+                    onDragEnd={() => {
+                      setDraggedHistoryItemIndex(null);
+                      setDragOverHistoryItemIndex(null);
+                    }}
                     onClick={async () => {
                       try {
                         const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', `room_${roomCode}`);
@@ -1445,6 +1486,10 @@ const HostView: React.FC<HostViewProps> = ({ user, onBack, globalTheme, setGloba
                       }
                     }}
                     className={`w-full p-2.5 border rounded-xl flex items-center gap-3.5 cursor-pointer text-left transition-all ${
+                      isDragged ? 'opacity-50' : 'opacity-100'
+                    } ${
+                      isDragOver ? 'border-amber-400 shadow-md scale-[1.02]' : ''
+                    } ${
                       isActive 
                         ? (globalTheme === 'dark' ? 'bg-blue-950/45 border-blue-500 shadow-inner' : 'bg-blue-50 border-blue-300 shadow-sm')
                         : (globalTheme === 'dark' ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-slate-50/50 hover:bg-slate-50 border-slate-200/60')
@@ -1530,17 +1575,29 @@ const ClientView: React.FC<ClientViewProps> = ({ user, onBack, globalTheme, setG
 
   const [step, setStep] = useState<string>(initialRoom ? 'connecting' : 'join');
   const [roomCode, setRoomCode] = useState<string>(initialRoom || '');
-  const [inputMode, setInputMode] = useState<string>('text');
-  const [text, setText] = useState<string>('');
+  
+  const savedStateStr = safeStorage.getItem(`syncboard_client_state`);
+  const savedState = savedStateStr ? JSON.parse(savedStateStr) : {};
+
+  const [inputMode, setInputMode] = useState<string>(savedState.inputMode || 'text');
+  const [text, setText] = useState<string>(savedState.text || '');
   const [status, setStatus] = useState<string>('idle'); 
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [roomData, setRoomData] = useState<RoomData | null>(null);
-  const [localNamesList, setLocalNamesList] = useState<string>('');
+  const [localNamesList, setLocalNamesList] = useState<string>(savedState.localNamesList || '');
   
   const [localClientTimerSeconds, setLocalClientTimerSeconds] = useState<number>(0);
   const timeoutRef = useRef<any>(null);
   const namesListTimeoutRef = useRef<any>(null);
   const hasInitializedRemote = useRef(false);
+
+  useEffect(() => {
+    safeStorage.setItem(`syncboard_client_state`, JSON.stringify({
+      inputMode,
+      text,
+      localNamesList
+    }));
+  }, [inputMode, text, localNamesList]);
 
   useEffect(() => {
     if (roomData?.type === 'timer') {
@@ -2512,10 +2569,28 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onSend, updateCloud }) =>
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     
-    // Save clear base state as starting point
-    const baseState = canvas.toDataURL();
-    setDrawHistory([baseState]);
+    // Attempt to load saved drawing state
+    const savedState = safeStorage.getItem('syncboard_drawing_state');
+    if (savedState) {
+      const img = new Image();
+      img.src = savedState;
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, w, h);
+        setDrawHistory([savedState]);
+      };
+    } else {
+      // Save clear base state as starting point
+      const baseState = canvas.toDataURL();
+      setDrawHistory([baseState]);
+    }
   }, []);
+
+  useEffect(() => {
+    if (drawHistory.length > 0) {
+      const currentState = drawHistory[drawHistory.length - 1];
+      safeStorage.setItem('syncboard_drawing_state', currentState);
+    }
+  }, [drawHistory]);
 
   const saveState = () => {
     const canvas = canvasRef.current;
